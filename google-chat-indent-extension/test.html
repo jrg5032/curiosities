@@ -98,6 +98,9 @@
     3. Press <kbd>Tab</kbd> again → should increase indent level<br>
     4. Press <kbd>Shift+Tab</kbd> → should decrease indent level<br>
     5. At level 0 unicode bullet, <kbd>Shift+Tab</kbd> → should convert back to native bullet<br>
+    6. Press <kbd>Shift+Enter</kbd> on a sub-bullet → new line at same indent level<br>
+    7. Press <kbd>Shift+Enter</kbd> on an empty sub-bullet → exits sub-bullet mode<br>
+    8. Copy a nested bullet list from Google Docs or OneNote and paste into a composer → nesting should be preserved<br>
     <br>
     <strong>What to verify:</strong> Sub-bullets should appear visually <em>indented</em> relative to the parent bullet, not flush-left.
   </div>
@@ -119,7 +122,12 @@
     </div>
   </div>
 
-  <h2>Test 3: Expected rendering reference</h2>
+  <h2>Test 3: Paste target</h2>
+  <div class="label">Copy a nested bullet list from Google Docs / OneNote / Word and paste here</div>
+  <div id="composer3" class="chat-composer" contenteditable="true" role="textbox">
+  </div>
+
+  <h2>Test 4: Expected rendering reference</h2>
   <div class="label">This is what properly indented sub-bullets should look like (6 + 4n NBSPs):</div>
   <div class="chat-composer" style="pointer-events: none;">
     <ul><li>Parent bullet</li></ul>

@@ -10,6 +10,8 @@
 // Tab on a native bullet → converts to indented unicode sub-bullet
 // Tab on a unicode bullet → increases indent level
 // Shift+Tab → decreases indent level (back to native bullet at level 0)
+// Shift+Enter on a sub-bullet → new line at same indent level
+// Paste from Docs/OneNote/Word → preserves bullet nesting levels
 
 (function () {
   "use strict";
@@ -304,6 +306,136 @@
     newDiv.removeAttribute(MARKER_ATTR);
     placeCaretAfterPrefix(newDiv, level);
   }
+
+  // --- Paste handler: convert nested lists from Docs/OneNote/Word ---
+
+  // Parse pasted HTML and extract a flat list of items with nesting depth.
+  // Handles two formats:
+  //   1. Nested <ul>/<ol> (OneNote, Word, standard HTML)
+  //   2. Flat <li> with margin-left/padding-left styles (Google Docs)
+  function parsePastedList(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const items = []; // { text: string, depth: number }
+
+    // Check if there are any list elements at all
+    const lists = doc.querySelectorAll("ul, ol");
+    if (lists.length === 0) return null; // not a list paste, don't intercept
+
+    // Walk all <li> elements in document order
+    const allLis = doc.querySelectorAll("li");
+    if (allLis.length === 0) return null;
+
+    for (const li of allLis) {
+      const text = li.textContent.trim();
+      if (!text) continue;
+
+      // Method 1: Check inline margin-left / padding-left (Google Docs style)
+      const marginLeft = parseFloat(li.style.marginLeft) || 0;
+      const paddingLeft = parseFloat(li.style.paddingLeft) || 0;
+      const inlineIndent = marginLeft + paddingLeft;
+
+      if (inlineIndent > 0) {
+        // Google Docs uses ~36px per level (sometimes 48px).
+        // Use 30px as threshold to be safe.
+        const depth = Math.round(inlineIndent / 36);
+        items.push({ text, depth });
+        continue;
+      }
+
+      // Method 2: Count ancestor <ul>/<ol> nesting depth
+      let depth = 0;
+      let el = li.parentElement;
+      while (el) {
+        if (el.tagName === "UL" || el.tagName === "OL") depth++;
+        el = el.parentElement;
+      }
+      // depth=1 means top-level list (the <li>'s direct parent <ul>)
+      items.push({ text, depth: Math.max(0, depth - 1) });
+    }
+
+    return items.length > 0 ? items : null;
+  }
+
+  // Build HTML for pasted list items mapped to our indent levels.
+  // depth 0 → native <li>, depth 1+ → unicode sub-bullets (capped at LEVELS.length)
+  function buildPastedHTML(items) {
+    let html = "";
+    let inList = false; // currently inside a <ul> run
+
+    for (const item of items) {
+      if (item.depth === 0) {
+        // Native bullet
+        if (!inList) {
+          html += "<ul>";
+          inList = true;
+        }
+        html += "<li>" + escapeHTML(item.text) + "</li>";
+      } else {
+        // Close any open native list
+        if (inList) {
+          html += "</ul>";
+          inList = false;
+        }
+        // Map depth to our sub-bullet levels (1-indexed depth → 0-indexed level)
+        const level = Math.min(item.depth - 1, LEVELS.length - 1);
+        html += "<div>" + escapeHTML(getPrefix(level) + item.text) + "</div>";
+      }
+    }
+
+    if (inList) html += "</ul>";
+    return html;
+  }
+
+  function handlePaste(e) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+
+    const anchor = sel.anchorNode;
+    if (!isInsideComposer(anchor)) return;
+
+    const composer = getComposer(anchor);
+    if (!composer) return;
+
+    const html = e.clipboardData && e.clipboardData.getData("text/html");
+    if (!html) return; // no HTML on clipboard, let default paste happen
+
+    const items = parsePastedList(html);
+    if (!items) return; // not a list, let default paste happen
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    const pastedHTML = buildPastedHTML(items);
+
+    // Insert at current cursor position
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+
+    // Create a temporary container to parse our HTML into nodes
+    const temp = document.createElement("div");
+    temp.innerHTML = pastedHTML;
+
+    // Insert nodes from temp into the composer at the cursor position
+    const frag = document.createDocumentFragment();
+    let lastInserted = null;
+    while (temp.firstChild) {
+      lastInserted = temp.firstChild;
+      frag.appendChild(lastInserted);
+    }
+
+    // If the cursor is inside an existing block, insert after it
+    const block = getCurrentBlock(sel);
+    if (block) {
+      block.after(frag);
+    } else {
+      composer.appendChild(frag);
+    }
+
+    commitToComposer(composer, lastInserted);
+  }
+
+  document.addEventListener("paste", handlePaste, true);
 
   // --- Main keydown handler ---
 
