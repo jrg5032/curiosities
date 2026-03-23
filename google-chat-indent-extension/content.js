@@ -221,7 +221,93 @@
     return div.innerHTML;
   }
 
+  // Place caret right after the prefix text in an element
+  function placeCaretAfterPrefix(el, level) {
+    const prefix = getPrefix(level);
+    if (!prefix) return placeCaretAtEndOf(el);
+
+    const sel = window.getSelection();
+    const range = document.createRange();
+
+    // Walk text nodes to find the offset that lands right after the prefix
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let remaining = prefix.length;
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.length >= remaining) {
+        range.setStart(node, remaining);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return;
+      }
+      remaining -= node.length;
+    }
+    // Fallback
+    placeCaretAtEndOf(el);
+  }
+
+  // --- Shift+Enter handler: continue sub-bullet on new line ---
+
+  function handleShiftEnter(e) {
+    if (e.key !== "Enter" || !e.shiftKey) return;
+
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+
+    const anchor = sel.anchorNode;
+    if (!isInsideComposer(anchor)) return;
+
+    const composer = getComposer(anchor);
+    if (!composer) return;
+
+    // Only act on our unicode bullet lines
+    const block = getCurrentBlock(sel);
+    if (!block) return;
+
+    const level = detectLevel(block.textContent);
+    if (level === -1) return; // not a sub-bullet line, let default behavior happen
+
+    const prefix = getPrefix(level);
+    const content = stripPrefix(block.textContent, level);
+
+    // If the line is empty (just the prefix), remove it and exit sub-bullet mode
+    if (content.trim() === "") {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      // Replace with an empty div so the user gets a plain new line
+      const emptyDiv = document.createElement("div");
+      emptyDiv.appendChild(document.createElement("br"));
+      block.replaceWith(emptyDiv);
+      commitToComposer(composer, emptyDiv);
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    // Create a new div with the same prefix
+    const newDiv = document.createElement("div");
+    newDiv.textContent = prefix;
+    newDiv.setAttribute(MARKER_ATTR, "1");
+
+    // Insert after the current block
+    block.after(newDiv);
+
+    ensureSentinelBr(composer);
+    composer.click();
+
+    // Place caret right after the prefix (ready to type)
+    newDiv.removeAttribute(MARKER_ATTR);
+    placeCaretAfterPrefix(newDiv, level);
+  }
+
   // --- Main keydown handler ---
+
+  document.addEventListener("keydown", handleShiftEnter, true);
 
   document.addEventListener(
     "keydown",
