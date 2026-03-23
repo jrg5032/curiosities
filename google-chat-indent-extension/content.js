@@ -93,90 +93,100 @@
   }
 
   // -----------------------------------------------------------
-  // The proven trick to make Google Chat recognise DOM changes:
-  //   1. Modify innerHTML directly
-  //   2. .click() on the composer
-  //   3. Place caret at end with a <br> sentinel
-  //
-  // This is the technique used by gchat-copy / google-chat-tweaks.
+  // Caret + commit helpers
   // -----------------------------------------------------------
 
-  function placeCaretAtEnd(el) {
+  // Place caret at end of a specific element's text content
+  function placeCaretAtEndOf(el) {
     const sel = window.getSelection();
     const range = document.createRange();
 
-    // Append a <br> — this is the secret sauce that makes Google Chat
-    // register the content as user-generated input.
-    const br = document.createElement("br");
-    el.appendChild(br);
+    // Find the deepest last text node or element
+    let target = el;
+    while (target.lastChild) {
+      target = target.lastChild;
+    }
 
-    range.setStartAfter(br);
-    range.collapse(true);
+    if (target.nodeType === Node.TEXT_NODE) {
+      range.setStart(target, target.length);
+    } else {
+      range.selectNodeContents(target);
+    }
+    range.collapse(false);
     sel.removeAllRanges();
     sel.addRange(range);
   }
 
-  function commitToComposer(composer) {
-    composer.scrollIntoView();
+  // Ensure there's exactly one trailing <br> sentinel in the composer
+  // (this is the secret sauce that makes Google Chat register the content)
+  function ensureSentinelBr(composer) {
+    const last = composer.lastChild;
+    if (!last || last.nodeName !== "BR") {
+      composer.appendChild(document.createElement("br"));
+    }
+  }
+
+  // Commit DOM changes so Google Chat recognises them, then place caret
+  // on the specified target element (instead of jumping to composer end).
+  function commitToComposer(composer, caretTarget) {
+    ensureSentinelBr(composer);
     composer.click();
-    placeCaretAtEnd(composer);
+
+    if (caretTarget && composer.contains(caretTarget)) {
+      placeCaretAtEndOf(caretTarget);
+    } else {
+      // Fallback: place at end of composer
+      placeCaretAtEndOf(composer);
+    }
   }
 
   // --- Tab from a native bullet list item → unicode sub-bullet ---
+
+  const MARKER_ATTR = "data-subbullet-target";
 
   function convertListItemToSubBullet(li, composer) {
     const text = li.textContent;
     const ul = li.closest("ul, ol");
     if (!ul) return;
 
-    // Build replacement: all list items, but replace the target li with
-    // a text div that has our unicode bullet prefix.
     const items = Array.from(ul.querySelectorAll(":scope > li"));
     const targetIndex = items.indexOf(li);
 
-    // Build new HTML fragments
     const beforeItems = items.slice(0, targetIndex);
     const afterItems = items.slice(targetIndex + 1);
 
+    // Mark the new div so we can find it after outerHTML replacement
     const subBulletDiv =
-      "<div>" + getPrefix(0) + escapeHTML(text) + "</div>";
+      '<div ' + MARKER_ATTR + '="1">' +
+      escapeHTML(getPrefix(0) + text) +
+      "</div>";
 
     let newHTML = "";
 
-    // Items before the target stay as a list
     if (beforeItems.length > 0) {
       const tag = ul.tagName.toLowerCase();
       newHTML +=
-        "<" +
-        tag +
-        ">" +
+        "<" + tag + ">" +
         beforeItems.map((item) => item.outerHTML).join("") +
-        "</" +
-        tag +
-        ">";
+        "</" + tag + ">";
     }
 
-    // Our unicode sub-bullet line
     newHTML += subBulletDiv;
 
-    // Items after the target stay as a list
     if (afterItems.length > 0) {
       const tag = ul.tagName.toLowerCase();
       newHTML +=
-        "<" +
-        tag +
-        ">" +
+        "<" + tag + ">" +
         afterItems.map((item) => item.outerHTML).join("") +
-        "</" +
-        tag +
-        ">";
+        "</" + tag + ">";
     }
 
-    // Replace the original <ul> with our new HTML
     ul.outerHTML = newHTML;
 
-    // Now commit the change so Google Chat recognizes it
-    commitToComposer(composer);
+    // Find the marked element and commit
+    const target = composer.querySelector("[" + MARKER_ATTR + "]");
+    if (target) target.removeAttribute(MARKER_ATTR);
+    commitToComposer(composer, target);
   }
 
   // --- Tab / Shift+Tab on a unicode bullet line ---
@@ -188,15 +198,21 @@
 
     if (newLevel < 0) {
       // Convert back to a native bullet list item
-      block.outerHTML = "<ul><li>" + escapeHTML(content) + "</li></ul>";
-      commitToComposer(composer);
+      block.outerHTML =
+        '<ul><li ' + MARKER_ATTR + '="1">' +
+        escapeHTML(content) +
+        "</li></ul>";
+
+      const target = composer.querySelector("[" + MARKER_ATTR + "]");
+      if (target) target.removeAttribute(MARKER_ATTR);
+      commitToComposer(composer, target);
       return;
     }
 
     if (newLevel >= LEVELS.length) return; // already at max depth
 
     block.innerHTML = escapeHTML(getPrefix(newLevel) + content);
-    commitToComposer(composer);
+    commitToComposer(composer, block);
   }
 
   function escapeHTML(str) {
@@ -228,8 +244,7 @@
         const li = getCurrentListItem(sel);
         if (!li) return;
 
-        // Only handle forward-Tab (indent). Shift+Tab in a native bullet
-        // has nowhere to go (already at base level).
+        // Shift+Tab on a native bullet — already at base level, nothing to do
         if (e.shiftKey) return;
 
         e.preventDefault();
