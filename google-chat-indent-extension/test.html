@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Google Chat Indent Extension – Test Harness</title>
+  <style>
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+      font-size: 14px;
+      padding: 40px;
+    }
+
+    h2 { color: #8ab4f8; margin-top: 32px; }
+    .instructions {
+      background: #2a2a3e;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .instructions kbd {
+      background: #444;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-size: 12px;
+    }
+
+    /* Mimic Google Chat's composer styling */
+    .chat-composer {
+      background: #202124;
+      border: 1px solid #5f6368;
+      border-radius: 8px;
+      padding: 8px 12px;
+      min-height: 80px;
+      max-width: 600px;
+      font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+      font-size: 14px;
+      line-height: 20px;
+      color: #e8eaed;
+      outline: none;
+    }
+    .chat-composer:focus {
+      border-color: #8ab4f8;
+    }
+    .chat-composer ul {
+      margin: 0;
+      /* Google Chat uses padding-left for bullet lists in the composer */
+      padding-left: 28px;
+    }
+    .chat-composer li {
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Test result panel */
+    #log {
+      background: #111;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 16px;
+      max-width: 600px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .log-entry { margin: 2px 0; }
+    .log-action { color: #81c995; }
+    .log-dom { color: #f28b82; }
+
+    /* Side-by-side comparison */
+    .comparison {
+      display: flex;
+      gap: 24px;
+      margin-top: 16px;
+    }
+    .comparison > div {
+      flex: 1;
+      max-width: 600px;
+    }
+    .label {
+      font-size: 12px;
+      color: #9aa0a6;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Google Chat Indent Extension – Test Harness</h1>
+
+  <div class="instructions">
+    <strong>How to test:</strong><br>
+    1. Click inside a composer box below and create a bullet list (type <kbd>-</kbd> then space, or click below where a list is pre-populated)<br>
+    2. Press <kbd>Tab</kbd> on a bullet item → should convert to indented unicode sub-bullet<br>
+    3. Press <kbd>Tab</kbd> again → should increase indent level<br>
+    4. Press <kbd>Shift+Tab</kbd> → should decrease indent level<br>
+    5. At level 0 unicode bullet, <kbd>Shift+Tab</kbd> → should convert back to native bullet<br>
+    <br>
+    <strong>What to verify:</strong> Sub-bullets should appear visually <em>indented</em> relative to the parent bullet, not flush-left.
+  </div>
+
+  <div class="comparison">
+    <div>
+      <h2>Test 1: Pre-populated bullet list</h2>
+      <div class="label">Composer (contenteditable) – click a bullet, then press Tab</div>
+      <div id="composer1" class="chat-composer" contenteditable="true" role="textbox">
+        <ul><li>First item</li><li>Indent me with Tab</li><li>Third item</li></ul>
+      </div>
+    </div>
+
+    <div>
+      <h2>Test 2: Empty composer</h2>
+      <div class="label">Type text, make a bullet list, then Tab to indent</div>
+      <div id="composer2" class="chat-composer" contenteditable="true" role="textbox">
+      </div>
+    </div>
+  </div>
+
+  <h2>Test 3: Expected rendering reference</h2>
+  <div class="label">This is what properly indented sub-bullets should look like (6 + 4n NBSPs):</div>
+  <div class="chat-composer" style="pointer-events: none;">
+    <ul><li>Parent bullet</li></ul>
+    <div>&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;◦ Sub-bullet level 1 (6 NBSPs — clears the ul padding)</div>
+    <div>&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;▪ Sub-bullet level 2 (10 NBSPs)</div>
+    <div>&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;▸ Sub-bullet level 3 (14 NBSPs)</div>
+    <ul><li>Another parent bullet</li></ul>
+  </div>
+
+  <h2>Event Log</h2>
+  <div id="log"></div>
+
+  <script>
+    // Logging helper
+    const logEl = document.getElementById('log');
+    function log(cls, msg) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry ' + cls;
+      entry.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Monitor keydown events on composers
+    document.querySelectorAll('.chat-composer').forEach(composer => {
+      composer.addEventListener('keydown', e => {
+        if (e.key === 'Tab') {
+          log('log-action', (e.shiftKey ? 'Shift+' : '') + 'Tab pressed in ' + composer.id);
+        }
+      }, false); // bubble phase, runs after content.js capture phase
+
+      // Monitor DOM changes
+      const observer = new MutationObserver(() => {
+        log('log-dom', composer.id + ' DOM changed → innerHTML: ' +
+          composer.innerHTML.substring(0, 200));
+      });
+      observer.observe(composer, { childList: true, subtree: true, characterData: true });
+    });
+
+    log('log-action', 'Test harness loaded. Loading content script inline...');
+  </script>
+
+  <!-- Load content.js inline so the test page works standalone -->
+  <script src="content.js"></script>
+
+  <script>
+    document.getElementById('log')
+      .appendChild(Object.assign(document.createElement('div'), {
+        className: 'log-entry log-action',
+        textContent: '[' + new Date().toLocaleTimeString() + '] content.js loaded. Ready to test!'
+      }));
+  </script>
+</body>
+</html>

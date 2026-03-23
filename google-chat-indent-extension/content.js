@@ -17,12 +17,18 @@
   // Non-breaking space so Google Chat won't trim leading whitespace
   const NBSP = "\u00A0";
 
+  // Native <ul> bullets get ~28px padding-left from browser/Chat CSS.
+  // A NBSP at 14px font is ~4-5px, so we need ~6 NBSPs just to reach
+  // where the native bullet text starts, then more to appear indented.
+  //
   // Indentation levels: indent string + bullet character
   // Level 0 is the native <li> bullet — no entry needed here.
+  const BASE_INDENT = 6; // NBSPs to clear <ul> padding
+  const PER_LEVEL = 4; // additional NBSPs per nesting level
   const LEVELS = [
-    { indent: NBSP.repeat(2), bullet: "\u25E6 " }, // ◦  (level 1)
-    { indent: NBSP.repeat(4), bullet: "\u25AA " }, // ▪  (level 2)
-    { indent: NBSP.repeat(6), bullet: "\u25B8 " }, // ▸  (level 3)
+    { indent: NBSP.repeat(BASE_INDENT + PER_LEVEL * 0), bullet: "\u25E6 " }, // ◦  (level 1 — first sub-bullet)
+    { indent: NBSP.repeat(BASE_INDENT + PER_LEVEL * 1), bullet: "\u25AA " }, // ▪  (level 2)
+    { indent: NBSP.repeat(BASE_INDENT + PER_LEVEL * 2), bullet: "\u25B8 " }, // ▸  (level 3)
   ];
 
   function getPrefix(level) {
@@ -114,15 +120,6 @@
     composer.scrollIntoView();
     composer.click();
     placeCaretAtEnd(composer);
-  }
-
-  // --- Rebuild the composer's HTML after a change ---
-  // We rebuild the entire composer content, swapping the target block's
-  // content while keeping everything else intact.
-
-  function getBlockIndex(composer, block) {
-    const children = Array.from(composer.childNodes);
-    return children.indexOf(block);
   }
 
   // --- Tab from a native bullet list item → unicode sub-bullet ---
