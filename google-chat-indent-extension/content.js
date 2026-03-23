@@ -4,6 +4,9 @@
 // strips any nesting. This extension fakes sub-bullets using unicode
 // bullet characters and non-breaking spaces that survive sending.
 //
+// Uses the proven innerHTML + click() + <br> caret trick from
+// gchat-copy/google-chat-tweaks to make changes stick in Chat's editor.
+//
 // Tab on a native bullet → converts to indented unicode sub-bullet
 // Tab on a unicode bullet → increases indent level
 // Shift+Tab → decreases indent level (back to native bullet at level 0)
@@ -49,8 +52,12 @@
     return el ? el.closest(selector) : null;
   }
 
+  function getComposer(node) {
+    return getClosestElement(node, "[contenteditable='true']");
+  }
+
   function isInsideComposer(node) {
-    return !!getClosestElement(node, "[contenteditable='true']");
+    return !!getComposer(node);
   }
 
   function isInsideListItem(node) {
@@ -62,16 +69,15 @@
     return getClosestElement(sel.getRangeAt(0).startContainer, "li");
   }
 
-  // Find the nearest block-level ancestor (div, p, span acting as line, etc.)
+  // Find the nearest block-level ancestor that is a direct child of composer
   function getCurrentBlock(sel) {
     if (!sel || !sel.rangeCount) return null;
     let node = sel.getRangeAt(0).startContainer;
     if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 
-    const composer = getClosestElement(node, "[contenteditable='true']");
+    const composer = getComposer(node);
     if (!composer) return null;
 
-    // Walk up until we hit a direct child of the composer or a block element
     let cur = node;
     while (cur && cur !== composer) {
       if (cur.parentElement === composer) return cur;
@@ -80,62 +86,126 @@
     return null;
   }
 
-  function selectAllContent(el) {
+  // -----------------------------------------------------------
+  // The proven trick to make Google Chat recognise DOM changes:
+  //   1. Modify innerHTML directly
+  //   2. .click() on the composer
+  //   3. Place caret at end with a <br> sentinel
+  //
+  // This is the technique used by gchat-copy / google-chat-tweaks.
+  // -----------------------------------------------------------
+
+  function placeCaretAtEnd(el) {
     const sel = window.getSelection();
     const range = document.createRange();
-    range.selectNodeContents(el);
+
+    // Append a <br> — this is the secret sauce that makes Google Chat
+    // register the content as user-generated input.
+    const br = document.createElement("br");
+    el.appendChild(br);
+
+    range.setStartAfter(br);
+    range.collapse(true);
     sel.removeAllRanges();
     sel.addRange(range);
   }
 
+  function commitToComposer(composer) {
+    composer.scrollIntoView();
+    composer.click();
+    placeCaretAtEnd(composer);
+  }
+
+  // --- Rebuild the composer's HTML after a change ---
+  // We rebuild the entire composer content, swapping the target block's
+  // content while keeping everything else intact.
+
+  function getBlockIndex(composer, block) {
+    const children = Array.from(composer.childNodes);
+    return children.indexOf(block);
+  }
+
   // --- Tab from a native bullet list item → unicode sub-bullet ---
 
-  function convertListItemToSubBullet(li) {
+  function convertListItemToSubBullet(li, composer) {
     const text = li.textContent;
+    const ul = li.closest("ul, ol");
+    if (!ul) return;
 
-    // Select the li's content and toggle the list off via execCommand.
-    // This is the same command Google Chat's toolbar uses, so the
-    // editor model should recognise it.
-    selectAllContent(li);
-    document.execCommand("insertUnorderedList", false, null);
+    // Build replacement: all list items, but replace the target li with
+    // a text div that has our unicode bullet prefix.
+    const items = Array.from(ul.querySelectorAll(":scope > li"));
+    const targetIndex = items.indexOf(li);
 
-    // After toggling, the text should now be in a plain block.
-    // The selection/cursor should still be in or near that text.
-    // Re-select the block and replace its content with our indented version.
-    const sel = window.getSelection();
-    const block = getCurrentBlock(sel);
-    if (block) {
-      selectAllContent(block);
-      document.execCommand("insertText", false, getPrefix(0) + text);
-    } else {
-      // Fallback: just insert at cursor
-      document.execCommand("insertText", false, getPrefix(0) + text);
+    // Build new HTML fragments
+    const beforeItems = items.slice(0, targetIndex);
+    const afterItems = items.slice(targetIndex + 1);
+
+    const subBulletDiv =
+      "<div>" + getPrefix(0) + escapeHTML(text) + "</div>";
+
+    let newHTML = "";
+
+    // Items before the target stay as a list
+    if (beforeItems.length > 0) {
+      const tag = ul.tagName.toLowerCase();
+      newHTML +=
+        "<" +
+        tag +
+        ">" +
+        beforeItems.map((item) => item.outerHTML).join("") +
+        "</" +
+        tag +
+        ">";
     }
+
+    // Our unicode sub-bullet line
+    newHTML += subBulletDiv;
+
+    // Items after the target stay as a list
+    if (afterItems.length > 0) {
+      const tag = ul.tagName.toLowerCase();
+      newHTML +=
+        "<" +
+        tag +
+        ">" +
+        afterItems.map((item) => item.outerHTML).join("") +
+        "</" +
+        tag +
+        ">";
+    }
+
+    // Replace the original <ul> with our new HTML
+    ul.outerHTML = newHTML;
+
+    // Now commit the change so Google Chat recognizes it
+    commitToComposer(composer);
   }
 
   // --- Tab / Shift+Tab on a unicode bullet line ---
 
-  function changeIndentLevel(block, currentLevel, direction) {
+  function changeIndentLevel(block, currentLevel, direction, composer) {
     const text = block.textContent;
     const content = stripPrefix(text, currentLevel);
     const newLevel = currentLevel + direction;
 
     if (newLevel < 0) {
       // Convert back to a native bullet list item
-      selectAllContent(block);
-      document.execCommand("insertText", false, content);
-      // Now turn it into a real list
-      const sel = window.getSelection();
-      const newBlock = getCurrentBlock(sel);
-      if (newBlock) selectAllContent(newBlock);
-      document.execCommand("insertUnorderedList", false, null);
+      block.outerHTML = "<ul><li>" + escapeHTML(content) + "</li></ul>";
+      commitToComposer(composer);
       return;
     }
 
     if (newLevel >= LEVELS.length) return; // already at max depth
 
-    selectAllContent(block);
-    document.execCommand("insertText", false, getPrefix(newLevel) + content);
+    block.innerHTML = escapeHTML(getPrefix(newLevel) + content);
+    commitToComposer(composer);
+  }
+
+  function escapeHTML(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   // --- Main keydown handler ---
@@ -150,6 +220,9 @@
 
       const anchor = sel.anchorNode;
       if (!isInsideComposer(anchor)) return;
+
+      const composer = getComposer(anchor);
+      if (!composer) return;
 
       const direction = e.shiftKey ? -1 : 1;
 
@@ -166,7 +239,7 @@
         e.stopPropagation();
         e.stopImmediatePropagation();
 
-        convertListItemToSubBullet(li);
+        convertListItemToSubBullet(li, composer);
         return;
       }
 
@@ -181,7 +254,7 @@
       e.stopPropagation();
       e.stopImmediatePropagation();
 
-      changeIndentLevel(block, level, direction);
+      changeIndentLevel(block, level, direction, composer);
     },
     true // capture phase
   );
