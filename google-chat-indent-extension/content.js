@@ -1,14 +1,47 @@
-// Google Chat Sub-Bullets
-// Intercepts Tab/Shift+Tab inside bullet lists in the Google Chat composer
-// to indent/outdent list items.
+// Google Chat Sub-Bullets (Visual Indentation)
 //
-// Strategy: select the list item content → delete it via execCommand →
-// reposition cursor → insert it via execCommand('insertHTML').
-// Every DOM change goes through the editing stack so Google Chat's
-// internal model stays in sync.
+// Google Chat does NOT support nested bullet lists — the send pipeline
+// strips any nesting. This extension fakes sub-bullets using unicode
+// bullet characters and non-breaking spaces that survive sending.
+//
+// Tab on a native bullet → converts to indented unicode sub-bullet
+// Tab on a unicode bullet → increases indent level
+// Shift+Tab → decreases indent level (back to native bullet at level 0)
 
 (function () {
   "use strict";
+
+  // Non-breaking space so Google Chat won't trim leading whitespace
+  const NBSP = "\u00A0";
+
+  // Indentation levels: indent string + bullet character
+  // Level 0 is the native <li> bullet — no entry needed here.
+  const LEVELS = [
+    { indent: NBSP.repeat(2), bullet: "\u25E6 " }, // ◦  (level 1)
+    { indent: NBSP.repeat(4), bullet: "\u25AA " }, // ▪  (level 2)
+    { indent: NBSP.repeat(6), bullet: "\u25B8 " }, // ▸  (level 3)
+  ];
+
+  function getPrefix(level) {
+    if (level < 0 || level >= LEVELS.length) return null;
+    return LEVELS[level].indent + LEVELS[level].bullet;
+  }
+
+  // Detect which indentation level a text line is at (-1 = not ours)
+  function detectLevel(text) {
+    for (let i = LEVELS.length - 1; i >= 0; i--) {
+      if (text.startsWith(getPrefix(i))) return i;
+    }
+    return -1;
+  }
+
+  // Strip our prefix from text to get the raw content
+  function stripPrefix(text, level) {
+    const prefix = getPrefix(level);
+    return prefix && text.startsWith(prefix) ? text.slice(prefix.length) : text;
+  }
+
+  // --- DOM helpers ---
 
   function getClosestElement(node, selector) {
     if (!node) return null;
@@ -16,216 +49,140 @@
     return el ? el.closest(selector) : null;
   }
 
-  function isInsideListItem(node) {
-    return !!getClosestElement(node, "li");
-  }
-
   function isInsideComposer(node) {
     return !!getClosestElement(node, "[contenteditable='true']");
   }
 
-  function getComposer(node) {
-    return getClosestElement(node, "[contenteditable='true']");
+  function isInsideListItem(node) {
+    return !!getClosestElement(node, "li");
   }
 
-  function getCurrentListItem(selection) {
-    if (!selection || !selection.rangeCount) return null;
-    const range = selection.getRangeAt(0);
-    return getClosestElement(range.startContainer, "li");
+  function getCurrentListItem(sel) {
+    if (!sel || !sel.rangeCount) return null;
+    return getClosestElement(sel.getRangeAt(0).startContainer, "li");
   }
 
-  function setCursorStart(el) {
-    const sel = window.getSelection();
-    const range = document.createRange();
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-    const firstText = walker.nextNode();
-    if (firstText) {
-      range.setStart(firstText, 0);
-      range.collapse(true);
-    } else {
-      range.selectNodeContents(el);
-      range.collapse(true);
+  // Find the nearest block-level ancestor (div, p, span acting as line, etc.)
+  function getCurrentBlock(sel) {
+    if (!sel || !sel.rangeCount) return null;
+    let node = sel.getRangeAt(0).startContainer;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+
+    const composer = getClosestElement(node, "[contenteditable='true']");
+    if (!composer) return null;
+
+    // Walk up until we hit a direct child of the composer or a block element
+    let cur = node;
+    while (cur && cur !== composer) {
+      if (cur.parentElement === composer) return cur;
+      cur = cur.parentElement;
     }
-    sel.removeAllRanges();
-    sel.addRange(range);
+    return null;
   }
 
-  function setCursorEnd(el) {
+  function selectAllContent(el) {
     const sel = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(el);
-    range.collapse(false);
     sel.removeAllRanges();
     sel.addRange(range);
   }
 
-  // Get the inner HTML of an li, excluding any nested sub-lists
-  function getListItemTextHTML(li) {
-    const clone = li.cloneNode(true);
-    clone.querySelectorAll("ul, ol").forEach((l) => l.remove());
-    return clone.innerHTML;
-  }
+  // --- Tab from a native bullet list item → unicode sub-bullet ---
 
-  // ---------- Indent ----------
-  // Move <li> into a nested list inside the previous <li>.
-  // All mutations go through execCommand so the editor model tracks them.
-  function indentListItem(li, composer) {
-    const prevLi = li.previousElementSibling;
-    if (!prevLi) return false;
+  function convertListItemToSubBullet(li) {
+    const text = li.textContent;
 
-    const parentList = li.parentElement;
-    const tag = parentList ? parentList.tagName.toLowerCase() : "ul";
+    // Select the li's content and toggle the list off via execCommand.
+    // This is the same command Google Chat's toolbar uses, so the
+    // editor model should recognise it.
+    selectAllContent(li);
+    document.execCommand("insertUnorderedList", false, null);
 
-    // Grab content before we delete
-    const contentHTML = getListItemTextHTML(li);
-    const nestedChildren = li.querySelector(":scope > ul, :scope > ol");
-    const nestedHTML = nestedChildren ? nestedChildren.outerHTML : "";
-
-    // Select the entire <li> node and delete it via execCommand
+    // After toggling, the text should now be in a plain block.
+    // The selection/cursor should still be in or near that text.
+    // Re-select the block and replace its content with our indented version.
     const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNode(li);
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.execCommand("delete", false, null);
-
-    // Now position cursor inside the previous li's nested list (create if needed)
-    let nestedList = prevLi.querySelector(":scope > ul, :scope > ol");
-    if (nestedList) {
-      // Place cursor at the end of the existing nested list
-      setCursorEnd(nestedList);
+    const block = getCurrentBlock(sel);
+    if (block) {
+      selectAllContent(block);
+      document.execCommand("insertText", false, getPrefix(0) + text);
     } else {
-      // Place cursor at end of prevLi, then insert a new list wrapper
-      setCursorEnd(prevLi);
+      // Fallback: just insert at cursor
+      document.execCommand("insertText", false, getPrefix(0) + text);
     }
-
-    // Build the HTML to insert
-    let insertHTML;
-    if (nestedList) {
-      // Append a new li to the existing nested list
-      insertHTML = "<li>" + contentHTML + nestedHTML + "</li>";
-    } else {
-      // Create a brand new nested list
-      insertHTML =
-        "<" + tag + "><li>" + contentHTML + nestedHTML + "</li></" + tag + ">";
-    }
-
-    document.execCommand("insertHTML", false, insertHTML);
-
-    // Place cursor in the newly inserted li
-    const updatedNested = prevLi.querySelector(":scope > ul, :scope > ol");
-    if (updatedNested) {
-      const lastLi = updatedNested.querySelector("li:last-child");
-      if (lastLi) setCursorStart(lastLi);
-    }
-
-    return true;
   }
 
-  // ---------- Outdent ----------
-  // Move <li> out of its nested list to the parent level.
-  function outdentListItem(li, composer) {
-    const parentList = li.parentElement;
-    if (!parentList) return false;
-    const parentLi = parentList.parentElement;
-    if (!parentLi || parentLi.tagName !== "LI") return false;
+  // --- Tab / Shift+Tab on a unicode bullet line ---
 
-    const grandparentList = parentLi.parentElement;
-    if (!grandparentList) return false;
+  function changeIndentLevel(block, currentLevel, direction) {
+    const text = block.textContent;
+    const content = stripPrefix(text, currentLevel);
+    const newLevel = currentLevel + direction;
 
-    const tag = grandparentList.tagName.toLowerCase();
-    const contentHTML = getListItemTextHTML(li);
-
-    // Collect any siblings after this li — they need to stay nested
-    const siblingsAfter = [];
-    let sib = li.nextElementSibling;
-    while (sib) {
-      siblingsAfter.push(sib.outerHTML);
-      sib = sib.nextElementSibling;
+    if (newLevel < 0) {
+      // Convert back to a native bullet list item
+      selectAllContent(block);
+      document.execCommand("insertText", false, content);
+      // Now turn it into a real list
+      const sel = window.getSelection();
+      const newBlock = getCurrentBlock(sel);
+      if (newBlock) selectAllContent(newBlock);
+      document.execCommand("insertUnorderedList", false, null);
+      return;
     }
 
-    // Existing nested children of this li
-    const nestedChildren = li.querySelector(":scope > ul, :scope > ol");
-    let nestedHTML = nestedChildren ? nestedChildren.innerHTML : "";
+    if (newLevel >= LEVELS.length) return; // already at max depth
 
-    // Combine: any nested children + any following siblings stay as sub-items
-    if (siblingsAfter.length > 0) {
-      nestedHTML += siblingsAfter.join("");
-    }
-
-    const subListHTML =
-      nestedHTML.length > 0
-        ? "<" + tag + ">" + nestedHTML + "</" + tag + ">"
-        : "";
-
-    // Delete the current li and any siblings after it via execCommand
-    const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNode(li);
-    if (siblingsAfter.length > 0) {
-      // Extend selection to include the following siblings
-      const lastSib = parentList.lastElementChild;
-      if (lastSib) range.setEndAfter(lastSib);
-    }
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.execCommand("delete", false, null);
-
-    // Clean up empty parent list
-    if (parentList.children.length === 0) {
-      const r2 = document.createRange();
-      r2.selectNode(parentList);
-      sel.removeAllRanges();
-      sel.addRange(r2);
-      document.execCommand("delete", false, null);
-    }
-
-    // Place cursor after the parent li and insert
-    const r3 = document.createRange();
-    r3.setStartAfter(parentLi);
-    r3.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(r3);
-
-    const insertHTML = "<li>" + contentHTML + subListHTML + "</li>";
-    document.execCommand("insertHTML", false, insertHTML);
-
-    // Find and focus the new li
-    const newLi = parentLi.nextElementSibling;
-    if (newLi && newLi.tagName === "LI") {
-      setCursorStart(newLi);
-    }
-
-    return true;
+    selectAllContent(block);
+    document.execCommand("insertText", false, getPrefix(newLevel) + content);
   }
+
+  // --- Main keydown handler ---
 
   document.addEventListener(
     "keydown",
     function (e) {
       if (e.key !== "Tab") return;
 
-      const selection = window.getSelection();
-      if (!selection || !selection.rangeCount) return;
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
 
-      const anchorNode = selection.anchorNode;
-      if (!isInsideComposer(anchorNode)) return;
-      if (!isInsideListItem(anchorNode)) return;
+      const anchor = sel.anchorNode;
+      if (!isInsideComposer(anchor)) return;
 
-      const li = getCurrentListItem(selection);
-      if (!li) return;
+      const direction = e.shiftKey ? -1 : 1;
 
-      const composer = getComposer(anchorNode);
+      // Case 1: cursor is inside a native bullet list <li>
+      if (isInsideListItem(anchor)) {
+        const li = getCurrentListItem(sel);
+        if (!li) return;
+
+        // Only handle forward-Tab (indent). Shift+Tab in a native bullet
+        // has nowhere to go (already at base level).
+        if (e.shiftKey) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        convertListItemToSubBullet(li);
+        return;
+      }
+
+      // Case 2: cursor is on a line with our unicode bullet prefix
+      const block = getCurrentBlock(sel);
+      if (!block) return;
+
+      const level = detectLevel(block.textContent);
+      if (level === -1) return; // not one of our lines, let Tab do its thing
 
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
 
-      if (e.shiftKey) {
-        outdentListItem(li, composer);
-      } else {
-        indentListItem(li, composer);
-      }
+      changeIndentLevel(block, level, direction);
     },
-    true
+    true // capture phase
   );
 })();
