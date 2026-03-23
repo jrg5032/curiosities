@@ -2,8 +2,10 @@
 // Intercepts Tab/Shift+Tab inside bullet lists in the Google Chat composer
 // to indent/outdent list items.
 //
-// Uses document.execCommand so that Google Chat's internal content model
-// picks up the change (direct DOM mutations are ignored on send).
+// Strategy: select the list item content → delete it via execCommand →
+// reposition cursor → insert it via execCommand('insertHTML').
+// Every DOM change goes through the editing stack so Google Chat's
+// internal model stays in sync.
 
 (function () {
   "use strict";
@@ -32,24 +34,6 @@
     return getClosestElement(range.startContainer, "li");
   }
 
-  // Select the entire contents of an <li>, excluding any nested sub-list
-  function selectListItemContent(li) {
-    const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(li);
-
-    // If the li contains a nested list, end the selection before it
-    const nestedList = li.querySelector(":scope > ul, :scope > ol");
-    if (nestedList) {
-      range.setEndBefore(nestedList);
-    }
-
-    sel.removeAllRanges();
-    sel.addRange(range);
-    return sel;
-  }
-
-  // Place cursor at the start of an element's text
   function setCursorStart(el) {
     const sel = window.getSelection();
     const range = document.createRange();
@@ -66,45 +50,150 @@
     sel.addRange(range);
   }
 
-  // ---------- Indent via execCommand ----------
-  // The browser's built-in "indent" command wraps the current selection's
-  // list item in a deeper nested list — exactly what we want.
-  function indentListItem(li, composer) {
-    // Can't indent if there's no previous sibling to nest under
-    if (!li.previousElementSibling) return false;
-
-    // Select the li content so execCommand operates on it
-    selectListItemContent(li);
-
-    // "indent" on a list item wraps it in a nested <ul>/<ol>
-    document.execCommand("indent", false, null);
-
-    // Re-find and place cursor (the old li reference may be stale)
+  function setCursorEnd(el) {
     const sel = window.getSelection();
-    if (sel.rangeCount) {
-      const newLi = getClosestElement(sel.getRangeAt(0).startContainer, "li");
-      if (newLi) setCursorStart(newLi);
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // Get the inner HTML of an li, excluding any nested sub-lists
+  function getListItemTextHTML(li) {
+    const clone = li.cloneNode(true);
+    clone.querySelectorAll("ul, ol").forEach((l) => l.remove());
+    return clone.innerHTML;
+  }
+
+  // ---------- Indent ----------
+  // Move <li> into a nested list inside the previous <li>.
+  // All mutations go through execCommand so the editor model tracks them.
+  function indentListItem(li, composer) {
+    const prevLi = li.previousElementSibling;
+    if (!prevLi) return false;
+
+    const parentList = li.parentElement;
+    const tag = parentList ? parentList.tagName.toLowerCase() : "ul";
+
+    // Grab content before we delete
+    const contentHTML = getListItemTextHTML(li);
+    const nestedChildren = li.querySelector(":scope > ul, :scope > ol");
+    const nestedHTML = nestedChildren ? nestedChildren.outerHTML : "";
+
+    // Select the entire <li> node and delete it via execCommand
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNode(li);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand("delete", false, null);
+
+    // Now position cursor inside the previous li's nested list (create if needed)
+    let nestedList = prevLi.querySelector(":scope > ul, :scope > ol");
+    if (nestedList) {
+      // Place cursor at the end of the existing nested list
+      setCursorEnd(nestedList);
+    } else {
+      // Place cursor at end of prevLi, then insert a new list wrapper
+      setCursorEnd(prevLi);
+    }
+
+    // Build the HTML to insert
+    let insertHTML;
+    if (nestedList) {
+      // Append a new li to the existing nested list
+      insertHTML = "<li>" + contentHTML + nestedHTML + "</li>";
+    } else {
+      // Create a brand new nested list
+      insertHTML =
+        "<" + tag + "><li>" + contentHTML + nestedHTML + "</li></" + tag + ">";
+    }
+
+    document.execCommand("insertHTML", false, insertHTML);
+
+    // Place cursor in the newly inserted li
+    const updatedNested = prevLi.querySelector(":scope > ul, :scope > ol");
+    if (updatedNested) {
+      const lastLi = updatedNested.querySelector("li:last-child");
+      if (lastLi) setCursorStart(lastLi);
     }
 
     return true;
   }
 
-  // ---------- Outdent via execCommand ----------
+  // ---------- Outdent ----------
+  // Move <li> out of its nested list to the parent level.
   function outdentListItem(li, composer) {
     const parentList = li.parentElement;
     if (!parentList) return false;
     const parentLi = parentList.parentElement;
-    // Already at top level — nothing to outdent
     if (!parentLi || parentLi.tagName !== "LI") return false;
 
-    selectListItemContent(li);
+    const grandparentList = parentLi.parentElement;
+    if (!grandparentList) return false;
 
-    document.execCommand("outdent", false, null);
+    const tag = grandparentList.tagName.toLowerCase();
+    const contentHTML = getListItemTextHTML(li);
 
+    // Collect any siblings after this li — they need to stay nested
+    const siblingsAfter = [];
+    let sib = li.nextElementSibling;
+    while (sib) {
+      siblingsAfter.push(sib.outerHTML);
+      sib = sib.nextElementSibling;
+    }
+
+    // Existing nested children of this li
+    const nestedChildren = li.querySelector(":scope > ul, :scope > ol");
+    let nestedHTML = nestedChildren ? nestedChildren.innerHTML : "";
+
+    // Combine: any nested children + any following siblings stay as sub-items
+    if (siblingsAfter.length > 0) {
+      nestedHTML += siblingsAfter.join("");
+    }
+
+    const subListHTML =
+      nestedHTML.length > 0
+        ? "<" + tag + ">" + nestedHTML + "</" + tag + ">"
+        : "";
+
+    // Delete the current li and any siblings after it via execCommand
     const sel = window.getSelection();
-    if (sel.rangeCount) {
-      const newLi = getClosestElement(sel.getRangeAt(0).startContainer, "li");
-      if (newLi) setCursorStart(newLi);
+    const range = document.createRange();
+    range.selectNode(li);
+    if (siblingsAfter.length > 0) {
+      // Extend selection to include the following siblings
+      const lastSib = parentList.lastElementChild;
+      if (lastSib) range.setEndAfter(lastSib);
+    }
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand("delete", false, null);
+
+    // Clean up empty parent list
+    if (parentList.children.length === 0) {
+      const r2 = document.createRange();
+      r2.selectNode(parentList);
+      sel.removeAllRanges();
+      sel.addRange(r2);
+      document.execCommand("delete", false, null);
+    }
+
+    // Place cursor after the parent li and insert
+    const r3 = document.createRange();
+    r3.setStartAfter(parentLi);
+    r3.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r3);
+
+    const insertHTML = "<li>" + contentHTML + subListHTML + "</li>";
+    document.execCommand("insertHTML", false, insertHTML);
+
+    // Find and focus the new li
+    const newLi = parentLi.nextElementSibling;
+    if (newLi && newLi.tagName === "LI") {
+      setCursorStart(newLi);
     }
 
     return true;
@@ -137,6 +226,6 @@
         indentListItem(li, composer);
       }
     },
-    true // capture phase to beat Google Chat's own handler
+    true
   );
 })();
