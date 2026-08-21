@@ -8,6 +8,12 @@ coordinate and sized by cost, with a scrubber that moves through April 1861 –
 June 1865. Battles bloom on the day they are fought and then fade toward a faint
 trace, so the map fills in with everywhere the war has already been.
 
+Scroll or pinch to zoom, drag to pan, or jump straight to a theatre of the war.
+Circle radii are held constant in screen pixels while the country grows
+underneath them — the crowd around Richmond is unreadable because the battles are
+close together, not because they are drawn small, so scaling the circles along
+with the map would separate nothing.
+
 Open `index.html` — it is a single self-contained file with no runtime
 dependencies beyond a webfont.
 

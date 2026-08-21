@@ -124,26 +124,55 @@ body {
 }
 
 /* ---------- map ---------- */
-.mapwrap { position: relative; padding: 6px; overflow-x: auto; overflow-y: hidden; }
-#map { display: block; width: 100%; height: auto; }
-@media (max-width: 640px) { #map { min-width: 660px; } }
+.mapwrap { position: relative; padding: 6px; overflow: hidden; }
+#map { display: block; width: 100%; height: auto; touch-action: none; }
 .state { stroke: var(--land-line); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .state.union { fill: var(--land-union); }
 .state.conf  { fill: var(--land-conf); }
 .state.terr  { fill: var(--land-terr); }
 .coastline { fill: none; stroke: var(--coast); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .55; }
 
-.bubble { stroke: var(--surface); stroke-width: 1.6; }
+.bubble { stroke: var(--surface); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
 .bubble.us   { fill: var(--us);   stroke-opacity: .9; }
 .bubble.cs   { fill: var(--cs);   stroke-opacity: .9; }
 .bubble.draw { fill: var(--draw); stroke-opacity: .9; }
-.halo { fill: none; stroke-width: 1.5; pointer-events: none; }
+.halo { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .halo.us { stroke: var(--us); } .halo.cs { stroke: var(--cs); } .halo.draw { stroke: var(--draw); }
 .hit { fill: transparent; pointer-events: none; }
-.mapwrap { cursor: default; }
+.mapwrap { cursor: grab; }
 .mapwrap.aiming { cursor: pointer; }
+.mapwrap.panning, .mapwrap.panning.aiming { cursor: grabbing; }
+
+.mapctl {
+  position: absolute; top: 12px; right: 12px; z-index: 5;
+  display: flex; align-items: stretch; gap: 6px;
+}
+.mapctl select {
+  font: inherit; font-size: 12.5px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 6px; padding: 5px 8px; cursor: pointer; box-shadow: var(--shadow);
+}
+.zoomgroup {
+  display: flex; background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 6px; box-shadow: var(--shadow); overflow: hidden;
+}
+.zoomgroup button {
+  font: inherit; font-size: 14px; line-height: 1; color: var(--ink-2);
+  background: none; border: 0; cursor: pointer;
+  width: 30px; display: grid; place-items: center;
+}
+.zoomgroup button.wide { width: auto; padding: 0 10px; font-size: 12.5px; }
+.zoomgroup button + button { border-left: 1px solid var(--hairline); }
+.zoomgroup button:hover:not(:disabled) { background: var(--surface-sunk); color: var(--ink); }
+.zoomgroup button:disabled { opacity: .35; cursor: default; }
+@media (max-width: 560px) {
+  .mapctl { top: 8px; right: 8px; flex-direction: column; align-items: flex-end; }
+}
 .hit:focus-visible { outline: none; }
-.pinring { fill: none; stroke: var(--ink); stroke-width: 1.4; stroke-dasharray: 2.5 3.5; pointer-events: none; }
+.pinring {
+  fill: none; stroke: var(--ink); stroke-width: 1.4; stroke-dasharray: 2.5 3.5;
+  vector-effect: non-scaling-stroke; pointer-events: none;
+}
 
 /* ---------- rail ---------- */
 .rail { display: flex; flex-direction: column; gap: 14px; padding: 16px; min-width: 0; }
@@ -286,6 +315,7 @@ body {
   transition: opacity .12s ease;
 }
 .tip.on { opacity: 1; }
+.tip.below { transform: translate(-50%, 0); }
 .tip .t-name { font-weight: 600; font-size: 14px; line-height: 1.25; }
 .tip .t-sub { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
 .tip .t-row {
@@ -334,7 +364,22 @@ td.nm { white-space: normal; min-width: 160px; }
 
   <div class="stage">
     <div class="panel mapwrap">
-      <svg id="map" role="img" aria-label="Map of the United States showing Civil War battles as circles sized by casualties"></svg>
+      <div class="mapctl">
+        <select id="jump" aria-label="Zoom to a theatre of the war">
+          <option value="all">Whole country</option>
+          <option value="East">Eastern theatre</option>
+          <option value="West">Western theatre</option>
+          <option value="Coast">Coast &amp; Gulf</option>
+          <option value="TransMiss">Trans-Mississippi</option>
+        </select>
+        <div class="zoomgroup">
+          <button id="zout" type="button" aria-label="Zoom out">&minus;</button>
+          <button id="zin" type="button" aria-label="Zoom in">+</button>
+          <button id="zreset" type="button" class="wide" aria-label="Reset the view">Reset</button>
+        </div>
+      </div>
+      <svg id="map" tabindex="0" role="img"
+           aria-label="Map of the United States showing Civil War battles as circles sized by casualties. Scroll to zoom, drag to pan; arrow keys pan and plus and minus zoom."></svg>
     </div>
 
     <aside class="panel rail">
@@ -368,7 +413,7 @@ td.nm { white-space: normal; min-width: 160px; }
         <div class="feed" id="feed"></div>
       </div>
 
-      <p class="hint" id="hint">Hover a circle for its figures; click one to keep it open.</p>
+      <p class="hint" id="hint">Hover a circle for its figures; click one to keep it open. Scroll or pinch to zoom, drag to pan.</p>
       <div class="detail" id="detail" hidden></div>
     </aside>
   </div>
@@ -555,7 +600,9 @@ const map = document.getElementById('map');
 map.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
 const gLand = el('g'), gBub = el('g'), gHit = el('g');
-map.append(gLand, gBub, gHit);
+const scene = el('g');
+scene.append(gLand, gBub, gHit);
+map.append(scene);
 
 const pathOf = polys => polys.map(rings => rings.map(ring =>
   'M' + ring.map(([x, y]) => `${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`).join('L') + 'Z'
@@ -588,37 +635,191 @@ for (const b of order) {
   nodes.set(b.i, { c, halo, hit, x, y });
   hit.addEventListener('focus', () => showTip(b));
   hit.addEventListener('blur', hideTip);
-  hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pin(b); } });
+  hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePin(b); } });
 }
 const pinRing = el('circle', { class: 'pinring', r: 0, opacity: 0 });
 gBub.append(pinRing);
 
 const wrap = map.parentElement;
-function nearest(ev) {
+
+/* ------------------------------------------------------------------ *
+ * Pan and zoom.
+ *
+ * The circles keep their size in screen pixels while the country grows
+ * underneath them. That is the whole point: the crowd around Richmond is
+ * unreadable because the battles are close together, not because they are
+ * drawn small — scaling the circles along with the map would separate
+ * nothing. Radii are therefore divided by the zoom factor in scene units,
+ * which the transform then multiplies straight back out.
+ * ------------------------------------------------------------------ */
+const K_MIN = 1, K_MAX = 16;
+let k = 1, tx = 0, ty = 0;
+
+const currentDay = () => { const s = document.getElementById('scrub'); return s ? Math.round(+s.value) : 0; };
+
+function clampPan() {
+  tx = Math.min(0, Math.max(W * (1 - k), tx));
+  ty = Math.min(0, Math.max(H * (1 - k), ty));
+}
+function applyView() {
+  scene.setAttribute('transform', `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${k.toFixed(4)})`);
+  const zi = document.getElementById('zin'), zo = document.getElementById('zout');
+  if (zi) zi.disabled = k >= K_MAX - 1e-6;
+  if (zo) zo.disabled = k <= K_MIN + 1e-6;
+}
+function toViewBox(clientX, clientY) {
   const r = map.getBoundingClientRect();
-  const mx = (ev.clientX - r.left) / r.width * W;
-  const my = (ev.clientY - r.top) / r.height * H;
+  return [(clientX - r.left) / r.width * W, (clientY - r.top) / r.height * H];
+}
+// Zoom about a fixed point, so whatever is under the cursor stays under it.
+function zoomAt(vx, vy, factor) {
+  const nk = Math.min(K_MAX, Math.max(K_MIN, k * factor));
+  if (Math.abs(nk - k) < 1e-9) return;
+  const sx = (vx - tx) / k, sy = (vy - ty) / k;
+  k = nk; tx = vx - sx * k; ty = vy - sy * k;
+  clampPan(); applyView(); render(currentDay());
+}
+const zoomCentre = f => zoomAt(W / 2, H / 2, f);
+
+function fitTo(list) {
+  if (!list.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const b of list) {
+    const n = nodes.get(b.i);
+    x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
+    x1 = Math.max(x1, n.x); y1 = Math.max(y1, n.y);
+  }
+  const pad = 46;
+  x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  k = Math.min(K_MAX, Math.max(K_MIN, Math.min(W / (x1 - x0), H / (y1 - y0))));
+  tx = W / 2 - ((x0 + x1) / 2) * k;
+  ty = H / 2 - ((y0 + y1) / 2) * k;
+  clampPan(); applyView(); render(currentDay());
+}
+function resetView() {
+  k = 1; tx = 0; ty = 0;
+  clampPan(); applyView(); render(currentDay());
+}
+
+/* ------------------------------------------------------------------ *
+ * Hit testing by proximity rather than paint order: the circle whose
+ * centre you are nearest, relative to its own radius, is the one you get.
+ * ------------------------------------------------------------------ */
+function nearest(clientX, clientY) {
+  const [vx, vy] = toViewBox(clientX, clientY);
+  const mx = (vx - tx) / k, my = (vy - ty) / k;   // into scene coordinates
   let best = null, bestScore = Infinity;
   for (const b of battles) {
     const n = nodes.get(b.i);
     const hr = +n.hit.getAttribute('r');
     if (!hr) continue;
-    const d = Math.hypot(mx - n.x, my - n.y);
-    const score = d / hr;
+    const score = Math.hypot(mx - n.x, my - n.y) / hr;
     if (score <= 1 && score < bestScore) { bestScore = score; best = b; }
   }
   return best;
 }
+
 let hovered = null;
-map.addEventListener('pointermove', ev => {
-  const b = nearest(ev);
+function hoverAt(clientX, clientY) {
+  const b = nearest(clientX, clientY);
   wrap.classList.toggle('aiming', !!b);
   if (b === hovered) return;
   hovered = b;
   if (b) showTip(b); else hideTip();
+}
+
+const pointers = new Map();
+let panning = false, travelled = 0, lastX = 0, lastY = 0, pinch = 0;
+
+const twoPointers = () => [...pointers.values()].slice(0, 2);
+const pinchSpan = () => { const [a, b] = twoPointers(); return Math.hypot(a.x - b.x, a.y - b.y); };
+const pinchMid = () => { const [a, b] = twoPointers(); return [(a.x + b.x) / 2, (a.y + b.y) / 2]; };
+
+map.addEventListener('pointerdown', ev => {
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pointers.size === 1) {
+    panning = true; travelled = 0; lastX = ev.clientX; lastY = ev.clientY;
+    wrap.classList.add('panning');
+    map.setPointerCapture(ev.pointerId);
+  } else if (pointers.size === 2) {
+    panning = false; pinch = pinchSpan();
+    wrap.classList.remove('panning');
+  }
 });
-map.addEventListener('pointerleave', () => { hovered = null; wrap.classList.remove('aiming'); hideTip(); });
-map.addEventListener('click', ev => { const b = nearest(ev); if (b) pin(b); });
+
+map.addEventListener('pointermove', ev => {
+  if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+  if (pointers.size >= 2) {
+    const span = pinchSpan();
+    if (pinch > 0 && span > 0) {
+      const [mx, my] = pinchMid();
+      const [vx, vy] = toViewBox(mx, my);
+      zoomAt(vx, vy, span / pinch);
+    }
+    pinch = span;
+    hideTip(); hovered = null;
+    return;
+  }
+
+  if (panning) {
+    const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+    lastX = ev.clientX; lastY = ev.clientY;
+    travelled += Math.abs(dx) + Math.abs(dy);
+    const r = map.getBoundingClientRect();
+    tx += dx / r.width * W;
+    ty += dy / r.height * H;
+    clampPan(); applyView();
+    if (travelled > 4) { hideTip(); hovered = null; }
+    return;
+  }
+
+  hoverAt(ev.clientX, ev.clientY);
+});
+
+function endPointer(ev) {
+  const wasPanning = panning, moved = travelled;
+  pointers.delete(ev.pointerId);
+  if (pointers.size < 2) pinch = 0;
+  if (pointers.size === 0) {
+    panning = false;
+    wrap.classList.remove('panning');
+    // A press that went nowhere is a click, not a drag.
+    if (wasPanning && moved <= 4) {
+      const b = nearest(ev.clientX, ev.clientY);
+      if (b) select(b); else clearPin();
+    }
+  }
+}
+map.addEventListener('pointerup', endPointer);
+map.addEventListener('pointercancel', endPointer);
+map.addEventListener('pointerleave', () => {
+  if (!panning) { hovered = null; wrap.classList.remove('aiming'); hideTip(); }
+});
+
+map.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const [vx, vy] = toViewBox(ev.clientX, ev.clientY);
+  zoomAt(vx, vy, Math.exp(-ev.deltaY * (ev.deltaMode === 1 ? 0.05 : 0.0016)));
+}, { passive: false });
+
+map.addEventListener('dblclick', ev => {
+  ev.preventDefault();
+  const [vx, vy] = toViewBox(ev.clientX, ev.clientY);
+  zoomAt(vx, vy, 1.9);
+});
+
+map.addEventListener('keydown', ev => {
+  const step = 60 / k;
+  const moves = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+  if (moves[ev.key]) {
+    ev.preventDefault();
+    tx += moves[ev.key][0] * k; ty += moves[ev.key][1] * k;
+    clampPan(); applyView();
+  } else if (ev.key === '+' || ev.key === '=') { ev.preventDefault(); zoomCentre(1.4); }
+  else if (ev.key === '-' || ev.key === '_') { ev.preventDefault(); zoomCentre(1 / 1.4); }
+  else if (ev.key === '0') { ev.preventDefault(); resetView(); }
+});
 
 /* ------------------------------------------------------------------ *
  * The fade. A battle blooms on its first day, holds while it is being
@@ -652,17 +853,17 @@ function render(t) {
       n.hit.setAttribute('tabindex', -1);
       continue;
     }
-    const r = radius(b) * p.scale;
-    n.c.setAttribute('r', r.toFixed(2));
+    const r = radius(b) * p.scale / k;
+    n.c.setAttribute('r', r.toFixed(3));
     n.c.setAttribute('opacity', p.alpha.toFixed(3));
     n.c.setAttribute('stroke-opacity', (p.alpha * 0.9).toFixed(3));
-    n.hit.setAttribute('r', Math.max(r, 8).toFixed(2));
+    n.hit.setAttribute('r', Math.max(r, 8 / k).toFixed(3));
     n.hit.setAttribute('tabindex', p.alpha > 0.3 ? 0 : -1);
     if (p.held && !reduced) {
-      n.halo.setAttribute('r', (r + 5).toFixed(2));
+      n.halo.setAttribute('r', (r + 5 / k).toFixed(3));
       n.halo.setAttribute('opacity', 0.5);
     } else if (p.fresh) {
-      n.halo.setAttribute('r', (r + 3).toFixed(2));
+      n.halo.setAttribute('r', (r + 3 / k).toFixed(3));
       n.halo.setAttribute('opacity', (0.28 * p.alpha).toFixed(3));
     } else {
       n.halo.setAttribute('opacity', 0);
@@ -672,7 +873,7 @@ function render(t) {
     const n = nodes.get(pinned.i);
     const vis = pinned.s <= t;
     pinRing.setAttribute('cx', n.x); pinRing.setAttribute('cy', n.y);
-    pinRing.setAttribute('r', (radius(pinned) + 7).toFixed(2));
+    pinRing.setAttribute('r', ((radius(pinned) + 7) / k).toFixed(3));
     pinRing.setAttribute('opacity', vis ? 0.75 : 0);
   } else {
     pinRing.setAttribute('opacity', 0);
@@ -723,16 +924,20 @@ function updateRail(t) {
       `<span class="dot sw-${b.cls}"></span>` +
       `<span><span class="nm">${b.name}</span><br><span class="st">${b.state} · ${b.span}</span></span>` +
       `<span class="cas">${num(b.cas)}</span>`;
-    row.addEventListener('click', () => pin(b));
+    row.addEventListener('click', () => togglePin(b));
     feed.append(row);
   }
 }
 
-function pin(b) {
-  pinned = pinned && pinned.i === b.i ? null : b;
+function togglePin(b) { if (pinned && pinned.i === b.i) clearPin(); else select(b); }
+function clearPin() { pinned = null; paintDetail(); }
+function select(b) { pinned = b; paintDetail(); }
+
+function paintDetail() {
   const box = $('detail');
-  $('hint').hidden = !!pinned;
-  if (!pinned) { box.hidden = true; render(+$('scrub').value); return; }
+  const b = pinned;
+  $('hint').hidden = !!b;
+  if (!b) { box.hidden = true; render(currentDay()); return; }
   box.hidden = false;
   const winner = b.result === 'US' ? 'Union victory' : b.result === 'CS' ? 'Confederate victory' : 'Inconclusive';
   box.innerHTML =
@@ -744,8 +949,8 @@ function pin(b) {
     `</dl>` +
     (b.note ? `<p>${b.note}</p>` : '') +
     `<button class="close" type="button">Clear selection</button>`;
-  box.querySelector('.close').addEventListener('click', () => pin(b));
-  render(+$('scrub').value);
+  box.querySelector('.close').addEventListener('click', clearPin);
+  render(currentDay());
 }
 
 /* ------------------------------------------------------------------ *
@@ -755,7 +960,7 @@ const tip = $('tip');
 function showTip(b) {
   const n = nodes.get(b.i);
   const r = map.getBoundingClientRect();
-  const k = r.width / W;
+  const px = r.width / W;                 // viewBox units to CSS pixels
   const winner = b.result === 'US' ? 'Union victory' : b.result === 'CS' ? 'Confederate victory' : 'Inconclusive';
   tip.innerHTML =
     `<div class="t-name">${b.name}</div>` +
@@ -765,13 +970,16 @@ function showTip(b) {
     `<div class="t-row"><span>Outcome</span><span>${winner}</span></div>` +
     (b.note ? `<div class="t-win">${b.note}</div>` : '');
   tip.classList.add('on');
-  const rad = radius(b) * k;
-  let left = r.left + n.x * k;
-  const top = r.top + n.y * k - rad - 12;
+  const rad = radius(b) * px;             // radii are screen-constant, so no k here
+  const cx = r.left + (n.x * k + tx) * px;
+  const cy = r.top + (n.y * k + ty) * px;
   const half = tip.offsetWidth / 2;
-  left = Math.max(half + 8, Math.min(window.innerWidth - half - 8, left));
-  tip.style.left = left + 'px';
-  tip.style.top = Math.max(tip.offsetHeight + 8, top) + 'px';
+  // Sit above the circle; flip below rather than climb out of the map panel.
+  const above = cy - rad - 12;
+  const fitsAbove = above - tip.offsetHeight >= Math.max(8, r.top);
+  tip.classList.toggle('below', !fitsAbove);
+  tip.style.left = Math.max(half + 8, Math.min(window.innerWidth - half - 8, cx)) + 'px';
+  tip.style.top = (fitsAbove ? above : cy + rad + 12) + 'px';
 }
 function hideTip() { tip.classList.remove('on'); }
 
@@ -924,6 +1132,15 @@ function setSize(mode) {
   drawSizeKey();
   render(Math.round(+scrub.value));
 }
+$('zin').addEventListener('click', () => zoomCentre(1.6));
+$('zout').addEventListener('click', () => zoomCentre(1 / 1.6));
+$('zreset').addEventListener('click', () => { resetView(); $('jump').value = 'all'; });
+$('jump').addEventListener('change', e => {
+  const v = e.target.value;
+  if (v === 'all') return resetView();
+  fitTo(battles.filter(b => b.theater === v));
+});
+
 $('by-cas').addEventListener('click', () => setSize('cas'));
 $('by-str').addEventListener('click', () => setSize('str'));
 
@@ -933,5 +1150,6 @@ document.addEventListener('keydown', e => {
 });
 
 drawSizeKey();
+applyView();
 render(0);
 </script>
