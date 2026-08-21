@@ -1,0 +1,937 @@
+<title>Where the War Was Fought</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --plane:        #e9ebec;
+  --surface:      #f7f8f8;
+  --surface-sunk: #eef0f1;
+  --land-union:   #dbdfe1;
+  --land-conf:    #ccc8c3;
+  --land-terr:    #e7e9ea;
+  --land-line:    #f7f8f8;
+  --coast:        #b3b9bb;
+  --ink:          #14181a;
+  --ink-2:        #4a5154;
+  --muted:        #7c8386;
+  --hairline:     rgba(20,24,26,0.12);
+  --us:           #2a78d6;
+  --cs:           #e34948;
+  --draw:         #898781;
+  --focus:        #2a78d6;
+  --shadow:       0 1px 2px rgba(20,24,26,.06), 0 8px 24px rgba(20,24,26,.07);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --plane:        #0c0e0f;
+    --surface:      #17191a;
+    --surface-sunk: #121415;
+    --land-union:   #23282b;
+    --land-conf:    #33302c;
+    --land-terr:    #1b1e1f;
+    --land-line:    #17191a;
+    --coast:        #454c4f;
+    --ink:          #f1f3f4;
+    --ink-2:        #b6bdbf;
+    --muted:        #828a8d;
+    --hairline:     rgba(241,243,244,0.14);
+    --us:           #3987e5;
+    --cs:           #e66767;
+    --draw:         #9a9891;
+    --focus:        #3987e5;
+    --shadow:       0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane:        #0c0e0f;
+  --surface:      #17191a;
+  --surface-sunk: #121415;
+  --land-union:   #23282b;
+  --land-conf:    #33302c;
+  --land-terr:    #1b1e1f;
+  --land-line:    #17191a;
+  --coast:        #454c4f;
+  --ink:          #f1f3f4;
+  --ink-2:        #b6bdbf;
+  --muted:        #828a8d;
+  --hairline:     rgba(241,243,244,0.14);
+  --us:           #3987e5;
+  --cs:           #e66767;
+  --draw:         #9a9891;
+  --focus:        #3987e5;
+  --shadow:       0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+
+.shell {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(16px, 2.5vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 100vh;
+}
+
+/* ---------- masthead ---------- */
+.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 30px; }
+.masthead h1 {
+  font-family: "Libre Caslon Display", Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  font-size: clamp(30px, 4.2vw, 50px);
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  margin: 0;
+  text-wrap: balance;
+}
+.standfirst {
+  color: var(--ink-2);
+  max-width: 46ch;
+  margin: 0;
+  font-size: 14.5px;
+}
+.standfirst b { font-weight: 600; color: var(--ink); }
+
+/* ---------- main grid ---------- */
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 18px;
+  align-items: stretch;
+}
+@media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+/* ---------- map ---------- */
+.mapwrap { position: relative; padding: 6px; overflow-x: auto; overflow-y: hidden; }
+#map { display: block; width: 100%; height: auto; }
+@media (max-width: 640px) { #map { min-width: 660px; } }
+.state { stroke: var(--land-line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.state.union { fill: var(--land-union); }
+.state.conf  { fill: var(--land-conf); }
+.state.terr  { fill: var(--land-terr); }
+.coastline { fill: none; stroke: var(--coast); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .55; }
+
+.bubble { stroke: var(--surface); stroke-width: 1.6; }
+.bubble.us   { fill: var(--us);   stroke-opacity: .9; }
+.bubble.cs   { fill: var(--cs);   stroke-opacity: .9; }
+.bubble.draw { fill: var(--draw); stroke-opacity: .9; }
+.halo { fill: none; stroke-width: 1.5; pointer-events: none; }
+.halo.us { stroke: var(--us); } .halo.cs { stroke: var(--cs); } .halo.draw { stroke: var(--draw); }
+.hit { fill: transparent; pointer-events: none; }
+.mapwrap { cursor: default; }
+.mapwrap.aiming { cursor: pointer; }
+.hit:focus-visible { outline: none; }
+.pinring { fill: none; stroke: var(--ink); stroke-width: 1.4; stroke-dasharray: 2.5 3.5; pointer-events: none; }
+
+/* ---------- rail ---------- */
+.rail { display: flex; flex-direction: column; gap: 14px; padding: 16px; min-width: 0; }
+.clock { display: flex; flex-direction: column; gap: 2px; }
+.eyebrow {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .11em;
+  text-transform: uppercase; color: var(--muted);
+}
+.clock .date {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: clamp(19px, 1.55vw, 23px); font-weight: 500; line-height: 1.15;
+  letter-spacing: -0.03em; white-space: nowrap;
+}
+.clock .day { color: var(--ink-2); font-size: 13px; }
+
+.tallies { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.tally { display: flex; flex-direction: column; gap: 1px; }
+.tally .n {
+  font-size: 21px; font-weight: 600; line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.tally .k { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.swatch { width: 9px; height: 9px; border-radius: 50%; display: inline-block; vertical-align: baseline; margin-right: 5px; }
+.sw-us { background: var(--us); } .sw-cs { background: var(--cs); } .sw-draw { background: var(--draw); }
+
+.feed { display: flex; flex-direction: column; gap: 0; min-height: 96px; }
+.feed-item {
+  display: grid; grid-template-columns: 11px 1fr auto; gap: 8px; align-items: baseline;
+  padding: 7px 0; border-top: 1px solid var(--hairline);
+  background: none; border-left: 0; border-right: 0; border-bottom: 0;
+  text-align: left; font: inherit; color: inherit; cursor: pointer; width: 100%;
+}
+.feed-item:hover { color: var(--ink); }
+.feed-item .dot { width: 9px; height: 9px; border-radius: 50%; }
+.feed-item .nm { font-size: 13.5px; font-weight: 500; line-height: 1.25; }
+.feed-item .st { font-size: 11px; color: var(--muted); }
+.feed-item .cas {
+  font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums;
+  font-family: "IBM Plex Mono", monospace;
+}
+.feed-empty { color: var(--muted); font-size: 13px; font-style: italic; padding: 8px 0; }
+
+.hint {
+  border-top: 1px solid var(--hairline); padding-top: 11px; margin: 0;
+  font-size: 12.5px; color: var(--muted); line-height: 1.45;
+}
+.detail { border-top: 1px solid var(--hairline); padding-top: 12px; }
+.detail h3 { margin: 0 0 2px; font-size: 15.5px; font-weight: 600; }
+.detail .sub { font-size: 11.5px; color: var(--muted); margin-bottom: 9px; }
+.detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 10px; font-size: 12.5px; }
+.detail dt { white-space: nowrap; }
+.detail dd { white-space: nowrap; }
+.detail dt { color: var(--muted); }
+.detail dd { margin: 0; font-variant-numeric: tabular-nums; }
+.detail p { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.detail .close {
+  margin-top: 10px; font: inherit; font-size: 12px; color: var(--ink-2);
+  background: none; border: 1px solid var(--hairline); border-radius: 5px;
+  padding: 3px 9px; cursor: pointer;
+}
+
+/* ---------- timeline ---------- */
+.timeline { padding: 14px 18px 16px; display: flex; flex-direction: column; gap: 8px; }
+.tl-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.tl-title { font-size: 12px; color: var(--muted); }
+.tl-title b { color: var(--ink-2); font-weight: 600; }
+
+.track { position: relative; height: 74px; }
+#spark { display: block; width: 100%; height: 60px; }
+.scrub {
+  -webkit-appearance: none; appearance: none;
+  position: absolute; left: 0; bottom: 2px; width: 100%; height: 18px;
+  background: none; margin: 0; cursor: pointer;
+}
+.scrub::-webkit-slider-runnable-track { height: 22px; background: none; }
+.scrub::-moz-range-track { height: 22px; background: none; }
+.scrub::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+  background: var(--ink); border: 3px solid var(--surface); cursor: grab;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.scrub::-moz-range-thumb {
+  width: 15px; height: 15px; border-radius: 50%;
+  background: var(--ink); border: 3px solid var(--surface); cursor: grab;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.scrub:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--focus); outline-offset: 2px; }
+.scrub:focus-visible::-moz-range-thumb { outline: 2px solid var(--focus); outline-offset: 2px; }
+.yearmarks {
+  display: flex; justify-content: space-between;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--muted);
+  border-top: 1px solid var(--hairline); padding-top: 5px;
+}
+
+/* ---------- controls ---------- */
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.btn {
+  font: inherit; font-size: 13px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--ink); color: var(--surface);
+  border: 1px solid transparent; border-radius: 6px;
+  padding: 6px 14px 6px 11px; cursor: pointer;
+}
+.btn:hover { opacity: .88; }
+.btn svg { display: block; }
+.ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.ctl select {
+  font: inherit; font-size: 12.5px; color: var(--ink);
+  background: var(--surface-sunk); border: 1px solid var(--hairline);
+  border-radius: 5px; padding: 5px 7px; cursor: pointer;
+}
+.seg { display: inline-flex; background: var(--surface-sunk); border: 1px solid var(--hairline); border-radius: 6px; padding: 2px; }
+.seg button {
+  font: inherit; font-size: 12.5px; color: var(--ink-2);
+  background: none; border: 0; border-radius: 4px; padding: 4px 10px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+/* ---------- legend ---------- */
+.legend {
+  display: flex; flex-wrap: wrap; gap: 16px 44px;
+  align-items: flex-start; padding: 14px 18px;
+}
+.legend-block { display: flex; flex-direction: column; gap: 6px; }
+.legend-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.legend-key { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.legend-key .swatch { margin: 0; width: 11px; height: 11px; }
+.legend-land { width: 15px; height: 11px; border-radius: 2px; border: 1px solid var(--hairline); }
+.sizekey { display: block; }
+.sizekey circle { fill: none; stroke: var(--muted); stroke-width: 1; }
+.sizekey text { fill: var(--muted); font-size: 10px; font-family: "IBM Plex Mono", monospace; }
+
+/* ---------- tooltip ---------- */
+.tip {
+  position: fixed; z-index: 40; pointer-events: none; opacity: 0;
+  transform: translate(-50%, -100%);
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--hairline); border-radius: 8px;
+  box-shadow: var(--shadow); padding: 10px 12px; max-width: 268px;
+  transition: opacity .12s ease;
+}
+.tip.on { opacity: 1; }
+.tip .t-name { font-weight: 600; font-size: 14px; line-height: 1.25; }
+.tip .t-sub { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+.tip .t-row {
+  display: flex; justify-content: space-between; gap: 16px; font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.tip .t-row span:first-child { color: var(--muted); }
+.tip .t-win { font-size: 11.5px; color: var(--muted); margin-top: 6px; font-style: italic; }
+
+/* ---------- table view ---------- */
+.tablewrap { padding: 0 18px 18px; }
+.tablewrap summary {
+  cursor: pointer; padding: 13px 0; font-size: 13px; font-weight: 500; color: var(--ink-2);
+  list-style: none; display: flex; align-items: center; gap: 7px;
+}
+.tablewrap summary::-webkit-details-marker { display: none; }
+.tablewrap summary::before { content: "▸"; color: var(--muted); font-size: 11px; }
+.tablewrap details[open] summary::before { content: "▾"; }
+.scrollx { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--surface); color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "IBM Plex Mono", monospace; }
+td.nm { white-space: normal; min-width: 160px; }
+
+.colophon {
+  font-size: 12px; color: var(--muted); max-width: 78ch; line-height: 1.55;
+  padding-bottom: 8px;
+}
+.colophon a { color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; }
+}
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <h1>Where the War Was Fought</h1>
+    <p class="standfirst">
+      <b>143 principal battles</b> of the American Civil War, placed where they happened and
+      sized by what they cost. Drag the scrubber, or press play, to move through
+      April 1861 &ndash; May 1865. Battles fade as the war moves on from them.
+    </p>
+  </header>
+
+  <div class="stage">
+    <div class="panel mapwrap">
+      <svg id="map" role="img" aria-label="Map of the United States showing Civil War battles as circles sized by casualties"></svg>
+    </div>
+
+    <aside class="panel rail">
+      <div class="clock">
+        <span class="eyebrow">The war on</span>
+        <span class="date" id="cur-date">April 12, 1861</span>
+        <span class="day" id="cur-day">Day 1 of 1,533</span>
+      </div>
+
+      <div class="tallies">
+        <div class="tally">
+          <span class="n" id="t-battles">0</span>
+          <span class="k">battles fought<br>to this date</span>
+        </div>
+        <div class="tally">
+          <span class="n" id="t-cas">0</span>
+          <span class="k">casualties<br>to this date</span>
+        </div>
+        <div class="tally">
+          <span class="n" id="t-us"><span class="swatch sw-us"></span>0</span>
+          <span class="k">Union victories</span>
+        </div>
+        <div class="tally">
+          <span class="n" id="t-cs"><span class="swatch sw-cs"></span>0</span>
+          <span class="k">Confederate victories</span>
+        </div>
+      </div>
+
+      <div>
+        <span class="eyebrow">Latest fighting</span>
+        <div class="feed" id="feed"></div>
+      </div>
+
+      <p class="hint" id="hint">Hover a circle for its figures; click one to keep it open.</p>
+      <div class="detail" id="detail" hidden></div>
+    </aside>
+  </div>
+
+  <div class="panel timeline">
+    <div class="tl-head">
+      <span class="tl-title">Casualties per month &mdash; <b id="tl-month">the whole war</b></span>
+      <div class="controls">
+        <button class="btn" id="play" aria-label="Play the war from the beginning">
+          <svg width="10" height="12" viewBox="0 0 10 12" aria-hidden="true"><path d="M0 0l10 6-10 6z" fill="currentColor"/></svg>
+          <span id="play-label">Play</span>
+        </button>
+        <label class="ctl">Speed
+          <select id="speed">
+            <option value="35">Slow</option>
+            <option value="70" selected>Normal</option>
+            <option value="150">Fast</option>
+          </select>
+        </label>
+        <label class="ctl">Fade over
+          <select id="trail">
+            <option value="30">1 month</option>
+            <option value="120" selected>4 months</option>
+            <option value="365">1 year</option>
+          </select>
+        </label>
+        <span class="ctl">Size by</span>
+        <div class="seg" role="group" aria-label="Size bubbles by">
+          <button id="by-cas" aria-pressed="true">Casualties</button>
+          <button id="by-str" aria-pressed="false">Troops engaged</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="track">
+      <svg id="spark" role="img" aria-label="Bar chart of total casualties per month across the war"></svg>
+      <input class="scrub" id="scrub" type="range" min="0" max="1533" value="0" step="1"
+             aria-label="Date" aria-valuetext="April 12, 1861">
+    </div>
+    <div class="yearmarks" id="yearmarks"></div>
+  </div>
+
+  <div class="panel legend">
+    <div class="legend-block">
+      <span class="eyebrow">Who held the field</span>
+      <div class="legend-row">
+        <span class="legend-key"><span class="swatch sw-us"></span>Union victory</span>
+        <span class="legend-key"><span class="swatch sw-cs"></span>Confederate victory</span>
+        <span class="legend-key"><span class="swatch sw-draw"></span>Inconclusive</span>
+      </div>
+    </div>
+    <div class="legend-block">
+      <span class="eyebrow">Circle area = <span id="sizeword">casualties</span></span>
+      <svg class="sizekey" id="sizekey" aria-hidden="true"></svg>
+    </div>
+    <div class="legend-block">
+      <span class="eyebrow">The country in 1861</span>
+      <div class="legend-row">
+        <span class="legend-key"><span class="legend-land" style="background:var(--land-union)"></span>Union states</span>
+        <span class="legend-key"><span class="legend-land" style="background:var(--land-conf)"></span>Confederate states</span>
+        <span class="legend-key"><span class="legend-land" style="background:var(--land-terr)"></span>Territories</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel tablewrap">
+    <details>
+      <summary>All 143 battles as a table</summary>
+      <div class="scrollx">
+        <table id="table">
+          <thead><tr>
+            <th>Battle</th><th>State</th><th>Dates</th>
+            <th class="num" style="text-align:right">Union<br>engaged</th>
+            <th class="num" style="text-align:right">C.S.<br>engaged</th>
+            <th class="num" style="text-align:right">Union<br>casualties</th>
+            <th class="num" style="text-align:right">C.S.<br>casualties</th>
+            <th>Result</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <p class="colophon" id="colophon"></p>
+</div>
+
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script>
+const BATTLES = __BATTLES__;
+const STATES  = __STATES__;
+const META    = __META__;
+
+/* ------------------------------------------------------------------ *
+ * Geography. Albers equal-area conic, the standard projection for the
+ * lower 48: it keeps the relative area of the states honest, which
+ * matters when the whole point is comparing sizes on top of it.
+ * ------------------------------------------------------------------ */
+const RAD = Math.PI / 180;
+const LAT0 = 37.5 * RAD, LON0 = -96 * RAD, P1 = 29.5 * RAD, P2 = 45.5 * RAD;
+const N = 0.5 * (Math.sin(P1) + Math.sin(P2));
+const C = Math.cos(P1) ** 2 + 2 * N * Math.sin(P1);
+const RHO0 = Math.sqrt(C - 2 * N * Math.sin(LAT0)) / N;
+function albers(lon, lat) {
+  const rho = Math.sqrt(C - 2 * N * Math.sin(lat * RAD)) / N;
+  const th = N * (lon * RAD - LON0);
+  // Negated in y: the conic's native y grows northward, SVG's grows downward.
+  return [rho * Math.sin(th), rho * Math.cos(th) - RHO0];
+}
+
+const CONFED = new Set(['Alabama','Arkansas','Florida','Georgia','Louisiana','Mississippi',
+  'North Carolina','South Carolina','Tennessee','Texas','Virginia']);
+// Not yet states when the war began; several were still being organised.
+const TERRITORY = new Set(['Arizona','Colorado','Idaho','Montana','Nevada','New Mexico',
+  'North Dakota','Oklahoma','South Dakota','Utah','Washington','Wyoming']);
+
+const W = 1000, PAD = 14;
+let bounds = [Infinity, Infinity, -Infinity, -Infinity];
+const projected = STATES.features.map(f => ({
+  name: f.name,
+  polys: f.polys.map(rings => rings.map(ring => ring.map(([lon, lat]) => {
+    const p = albers(lon, lat);
+    if (p[0] < bounds[0]) bounds[0] = p[0];
+    if (p[1] < bounds[1]) bounds[1] = p[1];
+    if (p[0] > bounds[2]) bounds[2] = p[0];
+    if (p[1] > bounds[3]) bounds[3] = p[1];
+    return p;
+  })))
+}));
+const SCALE = (W - PAD * 2) / (bounds[2] - bounds[0]);
+const H = Math.round((bounds[3] - bounds[1]) * SCALE + PAD * 2);
+const sx = x => PAD + (x - bounds[0]) * SCALE;
+const sy = y => PAD + (y - bounds[1]) * SCALE;
+const place = (lon, lat) => { const p = albers(lon, lat); return [sx(p[0]), sy(p[1])]; };
+
+/* ------------------------------------------------------------------ *
+ * Time. Everything downstream indexes off day-since-Fort-Sumter.
+ * ------------------------------------------------------------------ */
+const DAY = 864e5;
+const T0 = Date.UTC(1861, 3, 12);
+const T1 = Date.UTC(1865, 5, 23);
+const SPAN = Math.round((T1 - T0) / DAY);
+const dayOf = iso => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Math.round((Date.UTC(y, m - 1, d) - T0) / DAY);
+};
+const dateOf = day => new Date(T0 + day * DAY);
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const fmtLong = d => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+const fmtShort = d => `${MONTHS[d.getUTCMonth()].slice(0, 3)} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+const num = n => n.toLocaleString('en-US');
+
+const F = META.fields;
+const battles = BATTLES.map((r, i) => {
+  const b = Object.fromEntries(F.map((f, j) => [f, r[j]]));
+  b.i = i;
+  b.s = dayOf(b.start);
+  b.e = dayOf(b.end);
+  b.cas = b.usCas + b.csCas;
+  b.str = b.usForces + b.csForces;
+  b.cls = b.result === 'US' ? 'us' : b.result === 'CS' ? 'cs' : 'draw';
+  b.span = b.start === b.end ? fmtShort(dateOf(b.s))
+         : `${fmtShort(dateOf(b.s))} – ${fmtShort(dateOf(b.e))}`;
+  return b;
+});
+
+/* Radius carries area, not length: r = R_MAX * sqrt(v / v_max). A floor of
+   2.6 keeps the smallest actions visible and clickable. */
+const R_MAX = 34, R_MIN = 2.6;
+const maxCas = Math.max(...battles.map(b => b.cas));
+const maxStr = Math.max(...battles.map(b => b.str));
+let sizeBy = 'cas';
+const valueOf = b => sizeBy === 'cas' ? b.cas : b.str;
+const maxVal = () => sizeBy === 'cas' ? maxCas : maxStr;
+const radius = b => Math.max(R_MIN, R_MAX * Math.sqrt(valueOf(b) / maxVal()));
+
+/* ------------------------------------------------------------------ *
+ * Draw the map once.
+ * ------------------------------------------------------------------ */
+const SVG = 'http://www.w3.org/2000/svg';
+const el = (t, a) => { const n = document.createElementNS(SVG, t); for (const k in a) n.setAttribute(k, a[k]); return n; };
+const map = document.getElementById('map');
+map.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+const gLand = el('g'), gBub = el('g'), gHit = el('g');
+map.append(gLand, gBub, gHit);
+
+const pathOf = polys => polys.map(rings => rings.map(ring =>
+  'M' + ring.map(([x, y]) => `${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`).join('L') + 'Z'
+).join('')).join('');
+
+for (const f of projected) {
+  const tier = CONFED.has(f.name) ? 'conf' : TERRITORY.has(f.name) ? 'terr' : 'union';
+  const p = el('path', { class: `state ${tier}`, d: pathOf(f.polys) });
+  const t = el('title');
+  t.textContent = f.name;
+  p.append(t);
+  gLand.append(p);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bubbles. Big ones first so small ones stay reachable on top.
+ * ------------------------------------------------------------------ */
+const order = battles.slice().sort((a, b) => valueOf(b) - valueOf(a));
+const nodes = new Map();
+for (const b of order) {
+  const [x, y] = place(b.lon, b.lat);
+  const halo = el('circle', { class: `halo ${b.cls}`, cx: x, cy: y, r: 0, opacity: 0 });
+  const c = el('circle', { class: `bubble ${b.cls}`, cx: x, cy: y, r: 0 });
+  const hit = el('circle', { class: 'hit', cx: x, cy: y, r: 0, tabindex: -1, role: 'button' });
+  const label = el('title');
+  label.textContent = `${b.name}, ${b.span} — ${num(b.cas)} casualties`;
+  hit.append(label);
+  gBub.append(halo, c);
+  gHit.append(hit);
+  nodes.set(b.i, { c, halo, hit, x, y });
+  hit.addEventListener('focus', () => showTip(b));
+  hit.addEventListener('blur', hideTip);
+  hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pin(b); } });
+}
+const pinRing = el('circle', { class: 'pinring', r: 0, opacity: 0 });
+gBub.append(pinRing);
+
+const wrap = map.parentElement;
+function nearest(ev) {
+  const r = map.getBoundingClientRect();
+  const mx = (ev.clientX - r.left) / r.width * W;
+  const my = (ev.clientY - r.top) / r.height * H;
+  let best = null, bestScore = Infinity;
+  for (const b of battles) {
+    const n = nodes.get(b.i);
+    const hr = +n.hit.getAttribute('r');
+    if (!hr) continue;
+    const d = Math.hypot(mx - n.x, my - n.y);
+    const score = d / hr;
+    if (score <= 1 && score < bestScore) { bestScore = score; best = b; }
+  }
+  return best;
+}
+let hovered = null;
+map.addEventListener('pointermove', ev => {
+  const b = nearest(ev);
+  wrap.classList.toggle('aiming', !!b);
+  if (b === hovered) return;
+  hovered = b;
+  if (b) showTip(b); else hideTip();
+});
+map.addEventListener('pointerleave', () => { hovered = null; wrap.classList.remove('aiming'); hideTip(); });
+map.addEventListener('click', ev => { const b = nearest(ev); if (b) pin(b); });
+
+/* ------------------------------------------------------------------ *
+ * The fade. A battle blooms on its first day, holds while it is being
+ * fought, then decays toward a faint trace that never quite disappears —
+ * so the map slowly fills in with everywhere the war has already been.
+ * ------------------------------------------------------------------ */
+const GHOST = 0.13;
+const BLOOM = 6;
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let trail = 120, pinned = null;
+
+function presence(b, t) {
+  if (t < b.s) return null;
+  const held = t <= b.e;
+  const age = held ? 0 : t - b.e;
+  const k = Math.min(1, age / trail);
+  const decay = 1 - Math.pow(k, 0.55);          // fast at first, then lingers
+  const alpha = GHOST + (1 - GHOST) * decay;
+  const grow = reduced ? 1 : Math.min(1, (t - b.s + 1) / BLOOM);
+  const scale = reduced ? 1 : 0.45 + 0.55 * (1 - Math.pow(1 - grow, 3));
+  return { alpha, scale, held, fresh: age < trail * 0.28 };
+}
+
+function render(t) {
+  for (const b of battles) {
+    const n = nodes.get(b.i);
+    const p = presence(b, t);
+    if (!p) {
+      n.c.setAttribute('r', 0); n.c.setAttribute('opacity', 0);
+      n.halo.setAttribute('opacity', 0); n.hit.setAttribute('r', 0);
+      n.hit.setAttribute('tabindex', -1);
+      continue;
+    }
+    const r = radius(b) * p.scale;
+    n.c.setAttribute('r', r.toFixed(2));
+    n.c.setAttribute('opacity', p.alpha.toFixed(3));
+    n.c.setAttribute('stroke-opacity', (p.alpha * 0.9).toFixed(3));
+    n.hit.setAttribute('r', Math.max(r, 8).toFixed(2));
+    n.hit.setAttribute('tabindex', p.alpha > 0.3 ? 0 : -1);
+    if (p.held && !reduced) {
+      n.halo.setAttribute('r', (r + 5).toFixed(2));
+      n.halo.setAttribute('opacity', 0.5);
+    } else if (p.fresh) {
+      n.halo.setAttribute('r', (r + 3).toFixed(2));
+      n.halo.setAttribute('opacity', (0.28 * p.alpha).toFixed(3));
+    } else {
+      n.halo.setAttribute('opacity', 0);
+    }
+  }
+  if (pinned) {
+    const n = nodes.get(pinned.i);
+    const vis = pinned.s <= t;
+    pinRing.setAttribute('cx', n.x); pinRing.setAttribute('cy', n.y);
+    pinRing.setAttribute('r', (radius(pinned) + 7).toFixed(2));
+    pinRing.setAttribute('opacity', vis ? 0.75 : 0);
+  } else {
+    pinRing.setAttribute('opacity', 0);
+  }
+  updateRail(t);
+  updateSpark(t);
+}
+
+/* ------------------------------------------------------------------ *
+ * Rail: the running state of the war on the selected day.
+ * ------------------------------------------------------------------ */
+const $ = id => document.getElementById(id);
+function updateRail(t) {
+  const d = dateOf(t);
+  $('cur-date').textContent = fmtLong(d);
+  $('cur-day').textContent = `Day ${num(t + 1)} of ${num(SPAN + 1)}`;
+  $('scrub').setAttribute('aria-valuetext', fmtLong(d));
+
+  const done = battles.filter(b => b.s <= t);
+  let cas = 0, us = 0, cs = 0;
+  for (const b of done) {
+    // A battle still being fought contributes pro rata, so long sieges
+    // don't dump their whole toll on day one.
+    const len = b.e - b.s + 1;
+    const part = Math.min(1, (t - b.s + 1) / len);
+    cas += b.cas * part;
+    if (t >= b.e) { if (b.result === 'US') us++; else if (b.result === 'CS') cs++; }
+  }
+  $('t-battles').textContent = num(done.length);
+  $('t-cas').textContent = num(Math.round(cas));
+  $('t-us').innerHTML = `<span class="swatch sw-us"></span>${num(us)}`;
+  $('t-cs').innerHTML = `<span class="swatch sw-cs"></span>${num(cs)}`;
+
+  const recent = done.filter(b => t - b.e <= trail).sort((a, b) => b.e - a.e).slice(0, 5);
+  const feed = $('feed');
+  feed.innerHTML = '';
+  if (!recent.length) {
+    const p = document.createElement('p');
+    p.className = 'feed-empty';
+    p.textContent = t < battles[0].s ? 'The guns have not opened yet.' : 'Quiet on every front.';
+    feed.append(p);
+  }
+  for (const b of recent) {
+    const row = document.createElement('button');
+    row.className = 'feed-item';
+    row.type = 'button';
+    row.innerHTML =
+      `<span class="dot sw-${b.cls}"></span>` +
+      `<span><span class="nm">${b.name}</span><br><span class="st">${b.state} · ${b.span}</span></span>` +
+      `<span class="cas">${num(b.cas)}</span>`;
+    row.addEventListener('click', () => pin(b));
+    feed.append(row);
+  }
+}
+
+function pin(b) {
+  pinned = pinned && pinned.i === b.i ? null : b;
+  const box = $('detail');
+  $('hint').hidden = !!pinned;
+  if (!pinned) { box.hidden = true; render(+$('scrub').value); return; }
+  box.hidden = false;
+  const winner = b.result === 'US' ? 'Union victory' : b.result === 'CS' ? 'Confederate victory' : 'Inconclusive';
+  box.innerHTML =
+    `<h3>${b.name}${b.alt ? ` <span style="font-weight:400;color:var(--muted)">(${b.alt})</span>` : ''}</h3>` +
+    `<div class="sub">${b.state} · ${b.span} · ${winner}</div>` +
+    `<dl>` +
+      `<dt><span class="swatch sw-us"></span>Union</dt><dd>${num(b.usForces)} engaged · ${num(b.usCas)} lost</dd>` +
+      `<dt><span class="swatch sw-cs"></span>Confederate</dt><dd>${num(b.csForces)} engaged · ${num(b.csCas)} lost</dd>` +
+    `</dl>` +
+    (b.note ? `<p>${b.note}</p>` : '') +
+    `<button class="close" type="button">Clear selection</button>`;
+  box.querySelector('.close').addEventListener('click', () => pin(b));
+  render(+$('scrub').value);
+}
+
+/* ------------------------------------------------------------------ *
+ * Tooltip
+ * ------------------------------------------------------------------ */
+const tip = $('tip');
+function showTip(b) {
+  const n = nodes.get(b.i);
+  const r = map.getBoundingClientRect();
+  const k = r.width / W;
+  const winner = b.result === 'US' ? 'Union victory' : b.result === 'CS' ? 'Confederate victory' : 'Inconclusive';
+  tip.innerHTML =
+    `<div class="t-name">${b.name}</div>` +
+    `<div class="t-sub">${b.state} · ${b.span}</div>` +
+    `<div class="t-row"><span>Casualties</span><span>${num(b.cas)}</span></div>` +
+    `<div class="t-row"><span>Troops engaged</span><span>${num(b.str)}</span></div>` +
+    `<div class="t-row"><span>Outcome</span><span>${winner}</span></div>` +
+    (b.note ? `<div class="t-win">${b.note}</div>` : '');
+  tip.classList.add('on');
+  const rad = radius(b) * k;
+  let left = r.left + n.x * k;
+  const top = r.top + n.y * k - rad - 12;
+  const half = tip.offsetWidth / 2;
+  left = Math.max(half + 8, Math.min(window.innerWidth - half - 8, left));
+  tip.style.left = left + 'px';
+  tip.style.top = Math.max(tip.offsetHeight + 8, top) + 'px';
+}
+function hideTip() { tip.classList.remove('on'); }
+
+/* ------------------------------------------------------------------ *
+ * Timeline sparkline: one bar per month of the war.
+ * ------------------------------------------------------------------ */
+const spark = $('spark');
+const SW = 1000, SH = 60;
+spark.setAttribute('viewBox', `0 0 ${SW} ${SH}`);
+spark.setAttribute('preserveAspectRatio', 'none');
+const monthKeys = [];
+for (let y = 1861, m = 3; y < 1865 || m <= 5; m++) {
+  if (m > 11) { m = -1; y++; continue; }
+  monthKeys.push([y, m]);
+  if (y === 1865 && m === 5) break;
+}
+const monthTotals = monthKeys.map(([y, m]) => {
+  let s = 0;
+  for (const b of battles) {
+    const d = dateOf(b.s);
+    if (d.getUTCFullYear() === y && d.getUTCMonth() === m) s += b.cas;
+  }
+  return s;
+});
+const maxMonth = Math.max(...monthTotals);
+const barW = SW / monthKeys.length;
+const bars = monthKeys.map((k, i) => {
+  const h = Math.max(1.5, (monthTotals[i] / maxMonth) * (SH - 8));
+  const bar = el('rect', {
+    x: (i * barW + 1).toFixed(2), y: (SH - h).toFixed(2),
+    width: (barW - 2).toFixed(2), height: h.toFixed(2), rx: 1.5
+  });
+  spark.append(bar);
+  return bar;
+});
+const baseline = el('line', { x1: 0, y1: SH - 0.5, x2: SW, y2: SH - 0.5, stroke: 'currentColor', 'stroke-opacity': .18 });
+const playhead = el('line', { x1: 0, y1: 0, x2: 0, y2: SH, stroke: 'var(--ink)', 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' });
+spark.append(baseline, playhead);
+
+function updateSpark(t) {
+  const d = dateOf(t);
+  for (let i = 0; i < bars.length; i++) {
+    const [y, m] = monthKeys[i];
+    const past = y < d.getUTCFullYear() || (y === d.getUTCFullYear() && m <= d.getUTCMonth());
+    const now = y === d.getUTCFullYear() && m === d.getUTCMonth();
+    bars[i].setAttribute('fill', now ? 'var(--ink)' : past ? 'var(--ink-2)' : 'var(--muted)');
+    bars[i].setAttribute('fill-opacity', now ? 1 : past ? 0.55 : 0.18);
+  }
+  const px = (t / SPAN) * SW;
+  playhead.setAttribute('x1', px.toFixed(1));
+  playhead.setAttribute('x2', px.toFixed(1));
+  const idx = monthKeys.findIndex(([y, m]) => y === d.getUTCFullYear() && m === d.getUTCMonth());
+  const total = idx >= 0 ? monthTotals[idx] : 0;
+  $('tl-month').textContent = idx >= 0
+    ? `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}: ${num(total)}`
+    : 'the whole war';
+}
+
+const marks = $('yearmarks');
+for (const y of [1861, 1862, 1863, 1864, 1865]) {
+  const s = document.createElement('span');
+  s.textContent = y;
+  marks.append(s);
+}
+
+/* ------------------------------------------------------------------ *
+ * Size legend
+ * ------------------------------------------------------------------ */
+function drawSizeKey() {
+  const key = $('sizekey');
+  key.innerHTML = '';
+  const steps = sizeBy === 'cas' ? [2000, 12000, 46000] : [10000, 60000, 165000];
+  const K = 0.55;
+  const rs = steps.map(v => Math.max(3.5, R_MAX * Math.sqrt(v / maxVal())) * K);
+  const rMax = Math.max(...rs);
+  const BASE = 2 * rMax + 2;             // circles share a baseline, as in an atlas key
+  let x = rs[0] + 3;
+  steps.forEach((v, i) => {
+    const r = rs[i];
+    key.append(el('circle', { cx: x.toFixed(1), cy: (BASE - r).toFixed(1), r: r.toFixed(1) }));
+    const label = el('text', { x: x.toFixed(1), y: (BASE + 13).toFixed(1), 'text-anchor': 'middle' });
+    label.textContent = v >= 1000 ? (v / 1000) + 'k' : String(v);
+    key.append(label);
+    x += r + (rs[i + 1] || 0) + 20;
+  });
+  key.setAttribute('width', Math.ceil(x));
+  key.setAttribute('height', Math.ceil(BASE + 18));
+  $('sizeword').textContent = sizeBy === 'cas' ? 'casualties' : 'troops engaged';
+}
+
+/* ------------------------------------------------------------------ *
+ * Table view
+ * ------------------------------------------------------------------ */
+const tbody = $('tbody');
+for (const b of battles.slice().sort((a, b2) => a.s - b2.s)) {
+  const tr = document.createElement('tr');
+  const winner = b.result === 'US' ? 'Union' : b.result === 'CS' ? 'Confederate' : 'Inconclusive';
+  tr.innerHTML =
+    `<td class="nm">${b.name}${b.alt ? ` <span style="color:var(--muted)">(${b.alt})</span>` : ''}</td>` +
+    `<td>${b.state}</td><td>${b.span}</td>` +
+    `<td class="num">${num(b.usForces)}</td><td class="num">${num(b.csForces)}</td>` +
+    `<td class="num">${num(b.usCas)}</td><td class="num">${num(b.csCas)}</td>` +
+    `<td>${winner}</td>`;
+  tbody.append(tr);
+}
+$('colophon').textContent = META.colophon;
+
+/* ------------------------------------------------------------------ *
+ * Controls
+ * ------------------------------------------------------------------ */
+const scrub = $('scrub');
+scrub.max = SPAN;
+let playing = false, raf = 0, last = 0, speed = 70;
+
+scrub.addEventListener('input', () => { stop(); render(+scrub.value); });
+
+function tick(now) {
+  if (!playing) return;
+  const dt = last ? (now - last) / 1000 : 0;
+  last = now;
+  let v = +scrub.value + dt * speed;
+  if (v >= SPAN) { v = SPAN; scrub.value = v; render(v); stop(); return; }
+  scrub.value = v;
+  render(Math.round(v));
+  raf = requestAnimationFrame(tick);
+}
+function start() {
+  if (+scrub.value >= SPAN) scrub.value = 0;
+  playing = true; last = 0;
+  $('play-label').textContent = 'Pause';
+  $('play').setAttribute('aria-label', 'Pause');
+  $('play').firstElementChild.innerHTML = '<rect x="0" y="0" width="3.5" height="12" fill="currentColor"/><rect x="6.5" y="0" width="3.5" height="12" fill="currentColor"/>';
+  raf = requestAnimationFrame(tick);
+}
+function stop() {
+  playing = false;
+  cancelAnimationFrame(raf);
+  $('play-label').textContent = 'Play';
+  $('play').setAttribute('aria-label', 'Play the war from this date');
+  $('play').firstElementChild.innerHTML = '<path d="M0 0l10 6-10 6z" fill="currentColor"/>';
+}
+$('play').addEventListener('click', () => playing ? stop() : start());
+$('speed').addEventListener('change', e => { speed = +e.target.value; });
+$('trail').addEventListener('change', e => { trail = +e.target.value; render(Math.round(+scrub.value)); });
+
+function setSize(mode) {
+  sizeBy = mode;
+  $('by-cas').setAttribute('aria-pressed', String(mode === 'cas'));
+  $('by-str').setAttribute('aria-pressed', String(mode === 'str'));
+  drawSizeKey();
+  render(Math.round(+scrub.value));
+}
+$('by-cas').addEventListener('click', () => setSize('cas'));
+$('by-str').addEventListener('click', () => setSize('str'));
+
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, select, button, summary')) return;
+  if (e.key === ' ') { e.preventDefault(); playing ? stop() : start(); }
+});
+
+drawSizeKey();
+render(0);
+</script>
